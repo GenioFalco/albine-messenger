@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/albine_theme.dart';
 
-/// Flat black background every screen sits on. Deliberately monochrome and
-/// plain — the glass panels on top are where the "liquid glass" effect
-/// lives, the backdrop itself should not compete with them.
+/// Flat light background every screen sits on. Deliberately plain — the
+/// glass panels on top are where the "liquid glass" effect lives, the
+/// backdrop itself should not compete with them.
 class GlassBackdrop extends StatelessWidget {
   const GlassBackdrop({super.key, required this.child});
 
@@ -21,7 +21,8 @@ class GlassBackdrop extends StatelessWidget {
 
 /// The core "Liquid Glass" panel: blurred backdrop, translucent white tint,
 /// a brighter hairline along the top edge to fake a specular light
-/// reflection, white outline.
+/// reflection, and a soft shadow — on a light background a border alone
+/// doesn't read as "glass", the elevation has to come from the shadow.
 class GlassContainer extends StatelessWidget {
   const GlassContainer({
     super.key,
@@ -37,7 +38,7 @@ class GlassContainer extends StatelessWidget {
   final EdgeInsetsGeometry? margin;
   final BorderRadius? borderRadius;
 
-  /// Slightly brighter fill — used for primary interactive surfaces
+  /// Brighter, more opaque fill — used for primary interactive surfaces
   /// (buttons) so they read as glass, not as flat outlined boxes.
   final bool strong;
 
@@ -48,6 +49,10 @@ class GlassContainer extends StatelessWidget {
 
     return Container(
       margin: margin,
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        boxShadow: [BoxShadow(color: glass.shadow, blurRadius: 24, offset: const Offset(0, 8))],
+      ),
       child: ClipRRect(
         borderRadius: radius,
         child: BackdropFilter(
@@ -137,9 +142,10 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: glass.textPrimary,
+                  ),
                 ),
               ),
               ...?actions,
@@ -176,9 +182,15 @@ class GlassButton extends StatelessWidget {
     final baseTint = primary ? glass.panelTintStrong : glass.panelTint;
     const height = 54.0;
 
-    return SizedBox(
+    return Container(
       height: height,
       width: double.infinity,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(height / 2),
+        boxShadow: disabled
+            ? null
+            : [BoxShadow(color: glass.shadow, blurRadius: 16, offset: const Offset(0, 4))],
+      ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(height / 2),
         child: BackdropFilter(
@@ -203,16 +215,16 @@ class GlassButton extends StatelessWidget {
                 borderRadius: BorderRadius.circular(height / 2),
                 child: Center(
                   child: loading
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 22,
                           height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                          child: CircularProgressIndicator(strokeWidth: 2.4, color: glass.textOnAccent),
                         )
                       : Text(
                           label,
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
-                            color: Colors.white.withValues(alpha: disabled ? 0.5 : 1),
+                            color: glass.textOnAccent.withValues(alpha: disabled ? 0.5 : 1),
                           ),
                         ),
                 ),
@@ -237,9 +249,13 @@ class GlassIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final glass = Theme.of(context).extension<AlbineGlass>()!;
-    return SizedBox(
+    return Container(
       width: size,
       height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [BoxShadow(color: glass.shadow, blurRadius: 12, offset: const Offset(0, 3))],
+      ),
       child: ClipOval(
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: glass.blurSigma, sigmaY: glass.blurSigma),
@@ -260,7 +276,7 @@ class GlassIconButton extends StatelessWidget {
               child: InkWell(
                 onTap: onPressed,
                 customBorder: const CircleBorder(),
-                child: Icon(icon, size: size * 0.5, color: Colors.white),
+                child: Icon(icon, size: size * 0.5, color: glass.textPrimary),
               ),
             ),
           ),
@@ -309,7 +325,7 @@ class _GlassTextFieldState extends State<GlassTextField> {
       children: [
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 6),
-          child: Text(widget.label, style: TextStyle(color: Colors.white.withValues(alpha: 0.6))),
+          child: Text(widget.label, style: TextStyle(color: glass.textSecondary)),
         ),
         TextField(
           controller: widget.controller,
@@ -317,17 +333,17 @@ class _GlassTextFieldState extends State<GlassTextField> {
           autofocus: widget.autofocus,
           keyboardType: widget.keyboardType,
           onSubmitted: widget.onSubmitted,
-          style: const TextStyle(color: Colors.white),
+          style: TextStyle(color: glass.textPrimary),
           decoration: InputDecoration(
             hintText: widget.hintText,
-            hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.35)),
+            hintStyle: TextStyle(color: glass.textSecondary.withValues(alpha: 0.6)),
             filled: true,
             fillColor: glass.panelTint,
             suffixIcon: widget.obscureText
                 ? IconButton(
                     icon: Icon(
                       _obscured ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                      color: Colors.white54,
+                      color: glass.textSecondary,
                     ),
                     onPressed: () => setState(() => _obscured = !_obscured),
                   )
@@ -342,7 +358,7 @@ class _GlassTextFieldState extends State<GlassTextField> {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Colors.white),
+              borderSide: BorderSide(color: glass.textPrimary),
             ),
           ),
         ),
@@ -351,9 +367,10 @@ class _GlassTextFieldState extends State<GlassTextField> {
   }
 }
 
-/// The one place error/status messages get rendered — white, not red, with
-/// a small outline icon standing in for "something needs your attention"
-/// instead of color-coding it. Keeps every screen's error text consistent.
+/// The one place error/status messages get rendered — neutral, not red,
+/// with a small outline icon standing in for "something needs your
+/// attention" instead of color-coding it. Keeps every screen's error text
+/// consistent.
 class GlassErrorText extends StatelessWidget {
   const GlassErrorText(this.message, {super.key});
 
@@ -361,16 +378,17 @@ class GlassErrorText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final glass = Theme.of(context).extension<AlbineGlass>()!;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.only(top: 2),
-          child: Icon(Icons.info_outline, size: 16, color: Colors.white70),
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Icon(Icons.info_outline, size: 16, color: glass.textSecondary),
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: Text(message, style: const TextStyle(color: Colors.white, height: 1.3)),
+          child: Text(message, style: TextStyle(color: glass.textPrimary, height: 1.3)),
         ),
       ],
     );
@@ -421,8 +439,12 @@ class GlassBottomNav extends StatelessWidget {
     final glass = Theme.of(context).extension<AlbineGlass>()!;
     const height = 68.0;
 
-    return SizedBox(
+    return Container(
       height: height,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(height / 2),
+        boxShadow: [BoxShadow(color: glass.shadow, blurRadius: 24, offset: const Offset(0, 8))],
+      ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(height / 2),
         child: BackdropFilter(
@@ -468,7 +490,8 @@ class _GlassNavItemContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? Colors.white : Colors.white.withValues(alpha: 0.45);
+    final glass = Theme.of(context).extension<AlbineGlass>()!;
+    final color = active ? glass.textPrimary : glass.textSecondary;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,

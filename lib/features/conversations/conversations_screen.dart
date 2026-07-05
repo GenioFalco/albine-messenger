@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/errors/humanize_error.dart';
+import '../../core/theme/albine_theme.dart';
 import '../../data/providers.dart';
 import '../../data/session_controller.dart';
 import '../../shared/widgets/glass.dart';
@@ -15,6 +16,7 @@ class ConversationsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final conversations = ref.watch(conversationsStreamProvider);
     final profile = ref.watch(sessionControllerProvider).profile;
+    final glass = Theme.of(context).extension<AlbineGlass>()!;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -48,7 +50,7 @@ class ConversationsScreen extends ConsumerWidget {
                 child: Text(
                   'Пока нет чатов.\nНажми ✎ сверху, чтобы написать другу.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+                  style: TextStyle(color: glass.textSecondary),
                 ),
               );
             }
@@ -63,10 +65,10 @@ class ConversationsScreen extends ConsumerWidget {
                     children: [
                       CircleAvatar(
                         radius: 22,
-                        backgroundColor: Colors.white12,
+                        backgroundColor: glass.panelTintStrong,
                         child: Text(
                           convo.displayTitle.isNotEmpty ? convo.displayTitle[0].toUpperCase() : '?',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                          style: TextStyle(color: glass.textPrimary, fontWeight: FontWeight.w600),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -76,7 +78,7 @@ class ConversationsScreen extends ConsumerWidget {
                           children: [
                             Text(
                               convo.displayTitle,
-                              style: const TextStyle(fontWeight: FontWeight.w600),
+                              style: TextStyle(fontWeight: FontWeight.w600, color: glass.textPrimary),
                             ),
                             if (convo.previewText != null)
                               Padding(
@@ -85,7 +87,7 @@ class ConversationsScreen extends ConsumerWidget {
                                   convo.previewText!,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+                                  style: TextStyle(color: glass.textSecondary),
                                 ),
                               ),
                           ],

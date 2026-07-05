@@ -121,7 +121,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     Text(
                       _isSignUp ? 'Придумай email и пароль' : 'Введите данные для входа',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white.withValues(alpha: 0.55)),
+                      style: TextStyle(color: glass.textSecondary),
                     ),
                     const SizedBox(height: 28),
                     GlassTextField(
@@ -165,7 +165,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       children: [
                         Text(
                           _isSignUp ? 'Уже есть аккаунт?' : 'Нет аккаунта?',
-                          style: TextStyle(color: Colors.white.withValues(alpha: 0.55)),
+                          style: TextStyle(color: glass.textSecondary),
                         ),
                         const SizedBox(width: 6),
                         GlassLink(

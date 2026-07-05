@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/errors/humanize_error.dart';
+import '../../core/theme/albine_theme.dart';
 import '../../data/providers.dart';
 import '../../data/session_controller.dart';
 import '../../domain/models.dart';
@@ -53,6 +54,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final summaryAsync = ref.watch(conversationSummaryProvider(widget.conversationId));
     final myId = ref.watch(sessionControllerProvider).profile?.id;
     final chat = ref.watch(chatRepositoryProvider);
+    final glass = Theme.of(context).extension<AlbineGlass>()!;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -111,14 +113,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 margin: const EdgeInsets.symmetric(vertical: 4),
                                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                                 decoration: BoxDecoration(
-                                  color: mine
-                                      ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.85)
-                                      : Colors.white.withValues(alpha: 0.1),
+                                  color: mine ? glass.link : glass.panelTintStrong,
                                   borderRadius: BorderRadius.circular(16),
                                 ),
                                 child: Text(
                                   text,
-                                  style: TextStyle(color: mine ? const Color(0xFF0B0E14) : Colors.white),
+                                  style: TextStyle(color: mine ? Colors.white : glass.textPrimary),
                                 ),
                               ),
                             ),
@@ -137,10 +137,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         Expanded(
                           child: TextField(
                             controller: _textController,
-                            style: const TextStyle(color: Colors.white),
-                            decoration: const InputDecoration(
+                            style: TextStyle(color: glass.textPrimary),
+                            decoration: InputDecoration(
                               hintText: 'Сообщение...',
-                              hintStyle: TextStyle(color: Colors.white54),
+                              hintStyle: TextStyle(color: glass.textSecondary),
                               border: InputBorder.none,
                             ),
                             onSubmitted: (_) => _send(conversation),
@@ -148,12 +148,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ),
                         IconButton(
                           icon: _sending
-                              ? const SizedBox(
+                              ? SizedBox(
                                   width: 20,
                                   height: 20,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: glass.textPrimary,
+                                  ),
                                 )
-                              : const Icon(Icons.send),
+                              : Icon(Icons.send, color: glass.link),
                           onPressed: _sending ? null : () => _send(conversation),
                         ),
                       ],

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/albine_theme.dart';
 import '../../data/session_controller.dart';
 import '../../shared/widgets/glass.dart';
 
@@ -63,6 +64,7 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
   @override
   Widget build(BuildContext context) {
     final profile = ref.watch(sessionControllerProvider).profile;
+    final glass = Theme.of(context).extension<AlbineGlass>()!;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -88,7 +90,7 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
                       const SizedBox(height: 8),
                       Text(
                         'Введи пароль от аккаунта, чтобы открыть переписку на этом устройстве.',
-                        style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+                        style: TextStyle(color: glass.textSecondary),
                       ),
                       const SizedBox(height: 20),
                       GlassTextField(

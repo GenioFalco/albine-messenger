@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/albine_theme.dart';
 import '../../data/session_controller.dart';
 import '../../shared/widgets/glass.dart';
 
@@ -43,6 +44,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final glass = Theme.of(context).extension<AlbineGlass>()!;
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: GlassBackdrop(
@@ -67,7 +69,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                       const SizedBox(height: 8),
                       Text(
                         'Придумай имя пользователя, под которым тебя увидят друзья.',
-                        style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+                        style: TextStyle(color: glass.textSecondary),
                       ),
                       const SizedBox(height: 24),
                       GlassTextField(

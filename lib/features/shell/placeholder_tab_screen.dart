@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/theme/albine_theme.dart';
 import '../../shared/widgets/glass.dart';
 
 /// Honest placeholder for a nav tab that doesn't have a defined feature
@@ -11,6 +12,7 @@ class PlaceholderTabScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final glass = Theme.of(context).extension<AlbineGlass>()!;
     return Scaffold(
       backgroundColor: Colors.transparent,
       extendBodyBehindAppBar: true,
@@ -22,7 +24,7 @@ class PlaceholderTabScreen extends StatelessWidget {
             child: Text(
               'Пока не решили, что здесь будет 🤔',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+              style: TextStyle(color: glass.textSecondary),
             ),
           ),
         ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/albine_theme.dart';
 import '../../data/session_controller.dart';
 import '../../shared/widgets/glass.dart';
 
@@ -10,6 +11,7 @@ class ProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(sessionControllerProvider).profile;
+    final glass = Theme.of(context).extension<AlbineGlass>()!;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -26,12 +28,16 @@ class ProfileScreen extends ConsumerWidget {
                   children: [
                     CircleAvatar(
                       radius: 36,
-                      backgroundColor: Colors.white12,
+                      backgroundColor: glass.panelTintStrong,
                       child: Text(
                         (profile?.displayName.isNotEmpty ?? false)
                             ? profile!.displayName[0].toUpperCase()
                             : '?',
-                        style: const TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 28,
+                          color: glass.textPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 14),
@@ -43,10 +49,7 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                     if (profile != null) ...[
                       const SizedBox(height: 4),
-                      Text(
-                        '@${profile.username}',
-                        style: TextStyle(color: Colors.white.withValues(alpha: 0.55)),
-                      ),
+                      Text('@${profile.username}', style: TextStyle(color: glass.textSecondary)),
                     ],
                   ],
                 ),
@@ -54,11 +57,14 @@ class ProfileScreen extends ConsumerWidget {
               const SizedBox(height: 20),
               GlassCard(
                 onTap: () => ref.read(sessionControllerProvider.notifier).signOut(),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(Icons.logout, color: Colors.white70, size: 20),
-                    SizedBox(width: 12),
-                    Text('Выйти из аккаунта', style: TextStyle(fontWeight: FontWeight.w600)),
+                    Icon(Icons.logout, color: glass.textSecondary, size: 20),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Выйти из аккаунта',
+                      style: TextStyle(fontWeight: FontWeight.w600, color: glass.textPrimary),
+                    ),
                   ],
                 ),
               ),
