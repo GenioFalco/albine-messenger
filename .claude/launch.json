@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "albine-web",
+      "runtimeExecutable": "C:\\flutter\\bin\\flutter.bat",
+      "runtimeArgs": ["run", "-d", "web-server", "--web-hostname", "127.0.0.1", "--web-port", "5050"],
+      "port": 5050
+    }
+  ]
+}
