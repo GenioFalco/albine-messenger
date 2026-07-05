@@ -6,12 +6,11 @@ import '../../data/providers.dart';
 import '../chat/chat_screen.dart';
 import '../conversations/conversations_screen.dart';
 import '../profile/profile_screen.dart';
-import '../../shared/widgets/glass.dart';
 import 'placeholder_tab_screen.dart';
 
 /// Below this width, the shell is a single-column, bottom-nav mobile layout.
-/// At or above it, it's Element's 3-column layout: icon rail, list, detail —
-/// all visible at once, nothing pushed as a separate route.
+/// At or above it, it's a 3-column layout: icon rail, list, detail — all
+/// visible at once, nothing pushed as a separate route.
 const _wideBreakpoint = 900.0;
 
 class MainShell extends ConsumerStatefulWidget {
@@ -24,8 +23,11 @@ class MainShell extends ConsumerStatefulWidget {
 class _MainShellState extends ConsumerState<MainShell> {
   int _index = 0;
 
-  static const _icons = [Icons.chat_bubble_outline, Icons.person_outline, Icons.more_horiz];
-  static const _labels = ['Чаты', 'Профиль', 'Ещё'];
+  static const _destinations = [
+    NavigationDestination(icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: 'Чаты'),
+    NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Профиль'),
+    NavigationDestination(icon: Icon(Icons.more_horiz), label: 'Ещё'),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +39,6 @@ class _MainShellState extends ConsumerState<MainShell> {
   }
 
   Widget _buildNarrow(BuildContext context) {
-    final glass = Theme.of(context).extension<AlbineGlass>()!;
     const tabs = [
       ConversationsScreen(),
       ProfileScreen(),
@@ -45,38 +46,22 @@ class _MainShellState extends ConsumerState<MainShell> {
     ];
 
     return Scaffold(
-      backgroundColor: glass.background,
-      body: Stack(
-        children: [
-          IndexedStack(index: _index, children: tabs),
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 16,
-            child: SafeArea(
-              top: false,
-              child: GlassTabBar.bottom(
-                tabs: [
-                  for (var i = 0; i < _icons.length; i++)
-                    GlassTab(icon: Icon(_icons[i]), label: _labels[i]),
-                ],
-                selectedIndex: _index,
-                onTabSelected: (i) => setState(() => _index = i),
-              ),
-            ),
-          ),
-        ],
+      body: IndexedStack(index: _index, children: tabs),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _index,
+        onDestinationSelected: (i) => setState(() => _index = i),
+        destinations: _destinations,
       ),
     );
   }
 
   Widget _buildWide(BuildContext context) {
-    final glass = Theme.of(context).extension<AlbineGlass>()!;
+    final colors = Theme.of(context).extension<AlbineColors>()!;
 
     Widget content;
     switch (_index) {
       case 0:
-        content = _ChatsPane(glass: glass);
+        content = const _ChatsPane();
       case 1:
         content = const ProfileScreen();
       default:
@@ -84,33 +69,32 @@ class _MainShellState extends ConsumerState<MainShell> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: GlassBackdrop(
-        child: Row(
-          children: [
-            _SidebarRail(
-              icons: _icons,
-              labels: _labels,
-              index: _index,
-              onChanged: (i) => setState(() => _index = i),
-            ),
-            const VerticalDivider(width: 1),
-            Expanded(child: content),
-          ],
-        ),
+      body: Row(
+        children: [
+          NavigationRail(
+            selectedIndex: _index,
+            onDestinationSelected: (i) => setState(() => _index = i),
+            labelType: NavigationRailLabelType.all,
+            backgroundColor: colors.background,
+            destinations: _destinations
+                .map((d) => NavigationRailDestination(icon: d.icon, selectedIcon: d.selectedIcon, label: Text(d.label)))
+                .toList(),
+          ),
+          const VerticalDivider(width: 1),
+          Expanded(child: content),
+        ],
       ),
     );
   }
 }
 
 class _ChatsPane extends ConsumerWidget {
-  const _ChatsPane({required this.glass});
-
-  final AlbineGlass glass;
+  const _ChatsPane();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedId = ref.watch(selectedConversationIdProvider);
+    final colors = Theme.of(context).extension<AlbineColors>()!;
     return Row(
       children: [
         SizedBox(width: 340, child: const ConversationsScreen(embedded: true)),
@@ -120,7 +104,7 @@ class _ChatsPane extends ConsumerWidget {
               ? Center(
                   child: Text(
                     'Выбери чат слева',
-                    style: TextStyle(color: glass.textSecondary),
+                    style: TextStyle(color: colors.textSecondary),
                   ),
                 )
               : ChatScreen(
@@ -130,46 +114,6 @@ class _ChatsPane extends ConsumerWidget {
                 ),
         ),
       ],
-    );
-  }
-}
-
-class _SidebarRail extends StatelessWidget {
-  const _SidebarRail({
-    required this.icons,
-    required this.labels,
-    required this.index,
-    required this.onChanged,
-  });
-
-  final List<IconData> icons;
-  final List<String> labels;
-  final int index;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final glass = Theme.of(context).extension<AlbineGlass>()!;
-    return SizedBox(
-      width: 88,
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 24),
-          child: Column(
-            children: [
-              for (var i = 0; i < icons.length; i++)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: GlassIconButton(
-                    icon: Icon(icons[i], color: i == index ? glass.textPrimary : glass.textSecondary),
-                    size: 52,
-                    onPressed: () => onChanged(i),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

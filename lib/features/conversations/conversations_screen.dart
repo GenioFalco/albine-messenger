@@ -6,12 +6,12 @@ import '../../core/errors/humanize_error.dart';
 import '../../core/theme/albine_theme.dart';
 import '../../data/providers.dart';
 import '../../data/session_controller.dart';
-import '../../shared/widgets/glass.dart';
+import '../../shared/widgets/app_widgets.dart';
 import 'new_chat_sheet.dart';
 
 /// The chat list. Used two ways:
-/// - Narrow/mobile: a full [GlassScaffold] screen; tapping a conversation
-///   pushes `/chats/:id` as a new route.
+/// - Narrow/mobile: a full [Scaffold] screen; tapping a conversation pushes
+///   `/chats/:id` as a new route.
 /// - Wide/desktop (`embedded: true`): just the list pane of the 3-column
 ///   shell; tapping a conversation updates [selectedConversationIdProvider]
 ///   so the detail column next to it swaps inline — no navigation.
@@ -35,14 +35,14 @@ class ConversationsScreen extends ConsumerWidget {
     final conversations = ref.watch(conversationsStreamProvider);
     final profile = ref.watch(sessionControllerProvider).profile;
     final selectedId = embedded ? ref.watch(selectedConversationIdProvider) : null;
-    final glass = Theme.of(context).extension<AlbineGlass>()!;
+    final colors = Theme.of(context).extension<AlbineColors>()!;
 
     final list = conversations.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, _) => Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: GlassErrorText(humanizeError(error)),
+          child: AppErrorText(humanizeError(error)),
         ),
       ),
       data: (items) {
@@ -51,17 +51,18 @@ class ConversationsScreen extends ConsumerWidget {
             child: Text(
               'Пока нет чатов.\nНажми ✎ сверху, чтобы написать другу.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: glass.textSecondary),
+              style: TextStyle(color: colors.textSecondary),
             ),
           );
         }
-        return ListView.builder(
-          padding: EdgeInsets.fromLTRB(12, embedded ? 4 : 100, 12, embedded ? 12 : 110),
+        return ListView.separated(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           itemCount: items.length,
+          separatorBuilder: (context, index) => const SizedBox(height: 2),
           itemBuilder: (context, index) {
             final convo = items[index];
             final selected = embedded && convo.id == selectedId;
-            return GlassCard(
+            return AppCard(
               highlighted: selected,
               onTap: () {
                 if (embedded) {
@@ -74,10 +75,10 @@ class ConversationsScreen extends ConsumerWidget {
                 children: [
                   CircleAvatar(
                     radius: 22,
-                    backgroundColor: glass.panelTintStrong,
+                    backgroundColor: colors.surfaceStrong,
                     child: Text(
                       convo.displayTitle.isNotEmpty ? convo.displayTitle[0].toUpperCase() : '?',
-                      style: TextStyle(color: glass.textPrimary, fontWeight: FontWeight.w600),
+                      style: TextStyle(color: colors.textPrimary, fontWeight: FontWeight.w600),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -87,7 +88,7 @@ class ConversationsScreen extends ConsumerWidget {
                       children: [
                         Text(
                           convo.displayTitle,
-                          style: TextStyle(fontWeight: FontWeight.w600, color: glass.textPrimary),
+                          style: TextStyle(fontWeight: FontWeight.w600, color: colors.textPrimary),
                         ),
                         if (convo.previewText != null)
                           Padding(
@@ -96,7 +97,7 @@ class ConversationsScreen extends ConsumerWidget {
                               convo.previewText!,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: glass.textSecondary),
+                              style: TextStyle(color: colors.textSecondary),
                             ),
                           ),
                       ],
@@ -123,30 +124,28 @@ class ConversationsScreen extends ConsumerWidget {
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
-                GlassIconButton(
-                  icon: const Icon(Icons.edit_outlined),
-                  size: 40,
+                AppIconButton(
+                  icon: Icons.edit_outlined,
+                  size: 36,
                   onPressed: () => _startNewChat(context, ref),
                 ),
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: GlassTextField.search(placeholder: 'Поиск'),
-          ),
-          const SizedBox(height: 4),
+          const Divider(height: 1),
           Expanded(child: list),
         ],
       );
     }
 
-    return GlassScaffold(
-      backgroundColor: glass.background,
-      appBar: GlassAppBar(
+    return Scaffold(
+      appBar: AppBar(
         title: Text(profile?.displayName ?? 'Чаты'),
         actions: [
-          GlassIconButton(icon: const Icon(Icons.edit_outlined), onPressed: () => _startNewChat(context, ref)),
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: () => _startNewChat(context, ref),
+          ),
         ],
       ),
       body: list,

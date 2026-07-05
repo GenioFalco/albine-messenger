@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/albine_theme.dart';
 import '../../data/session_controller.dart';
-import '../../shared/widgets/glass.dart';
+import '../../shared/widgets/app_widgets.dart';
 
 /// Shown on every fresh page load to unlock the local key with the account
 /// password. If this device has never held the key before (new device,
@@ -64,73 +64,56 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
   @override
   Widget build(BuildContext context) {
     final profile = ref.watch(sessionControllerProvider).profile;
-    final glass = Theme.of(context).extension<AlbineGlass>()!;
+    final colors = Theme.of(context).extension<AlbineColors>()!;
 
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: GlassBackdrop(
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: FormPanel(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        'С возвращением${profile != null ? ', ${profile.displayName}' : ''}',
-                        style: Theme.of(
-                          context,
-                        ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-                      ),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: FormPanel(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'С возвращением${profile != null ? ', ${profile.displayName}' : ''}',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Введи пароль от аккаунта, чтобы открыть переписку на этом устройстве.',
+                      style: TextStyle(color: colors.textSecondary),
+                    ),
+                    const SizedBox(height: 20),
+                    LabeledField(
+                      label: 'Пароль',
+                      controller: _passwordController,
+                      obscureText: true,
+                      autofocus: true,
+                      onSubmitted: (_) => _submit(),
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 12),
+                      AppErrorText(_error!),
                       const SizedBox(height: 8),
-                      Text(
-                        'Введи пароль от аккаунта, чтобы открыть переписку на этом устройстве.',
-                        style: TextStyle(color: glass.textSecondary),
-                      ),
-                      const SizedBox(height: 20),
-                      LabeledGlassField(
-                        label: 'Пароль',
-                        controller: _passwordController,
-                        obscureText: true,
-                        autofocus: true,
-                        onSubmitted: (_) => _submit(),
-                      ),
-                      if (_error != null) ...[
-                        const SizedBox(height: 12),
-                        GlassErrorText(_error!),
-                        const SizedBox(height: 8),
-                        GlassLink(
-                          text: 'Недавно сбросил(а) пароль? Начать заново на этом устройстве',
-                          onTap: _resetLocalKey,
-                        ),
-                      ],
-                      const SizedBox(height: 20),
-                      LayoutBuilder(
-                        builder: (context, constraints) => GlassButton.custom(
-                          width: constraints.maxWidth,
-                          height: 54,
-                          enabled: !_loading,
-                          onTap: _submit,
-                          child: _loading
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(strokeWidth: 2.4),
-                                )
-                              : const Text('Продолжить', style: TextStyle(fontWeight: FontWeight.w600)),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: () => ref.read(sessionControllerProvider.notifier).signOut(),
-                        child: const Text('Выйти из аккаунта'),
+                      AppLink(
+                        text: 'Недавно сбросил(а) пароль? Начать заново на этом устройстве',
+                        onTap: _resetLocalKey,
                       ),
                     ],
-                  ),
+                    const SizedBox(height: 20),
+                    AppButton(label: 'Продолжить', loading: _loading, onPressed: _submit),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: () => ref.read(sessionControllerProvider.notifier).signOut(),
+                      child: const Text('Выйти из аккаунта'),
+                    ),
+                  ],
                 ),
               ),
             ),

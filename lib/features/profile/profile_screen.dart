@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/albine_theme.dart';
 import '../../data/session_controller.dart';
-import '../../shared/widgets/glass.dart';
+import '../../shared/widgets/app_widgets.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -11,28 +11,27 @@ class ProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(sessionControllerProvider).profile;
-    final glass = Theme.of(context).extension<AlbineGlass>()!;
+    final colors = Theme.of(context).extension<AlbineColors>()!;
 
-    return GlassScaffold(
-      backgroundColor: glass.background,
-      appBar: GlassAppBar(title: const Text('Профиль')),
+    return Scaffold(
+      appBar: AppBar(title: const Text('Профиль')),
       body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.all(16),
         children: [
-          GlassContainer(
+          FormPanel(
             padding: const EdgeInsets.all(24),
             child: Column(
               children: [
                 CircleAvatar(
                   radius: 36,
-                  backgroundColor: glass.panelTintStrong,
+                  backgroundColor: colors.surfaceStrong,
                   child: Text(
                     (profile?.displayName.isNotEmpty ?? false)
                         ? profile!.displayName[0].toUpperCase()
                         : '?',
                     style: TextStyle(
                       fontSize: 28,
-                      color: glass.textPrimary,
+                      color: colors.textPrimary,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -44,21 +43,21 @@ class ProfileScreen extends ConsumerWidget {
                 ),
                 if (profile != null) ...[
                   const SizedBox(height: 4),
-                  Text('@${profile.username}', style: TextStyle(color: glass.textSecondary)),
+                  Text('@${profile.username}', style: TextStyle(color: colors.textSecondary)),
                 ],
               ],
             ),
           ),
           const SizedBox(height: 20),
-          GlassCard(
+          AppCard(
             onTap: () => ref.read(sessionControllerProvider.notifier).signOut(),
             child: Row(
               children: [
-                Icon(Icons.logout, color: glass.textSecondary, size: 20),
+                Icon(Icons.logout, color: colors.textSecondary, size: 20),
                 const SizedBox(width: 12),
                 Text(
                   'Выйти из аккаунта',
-                  style: TextStyle(fontWeight: FontWeight.w600, color: glass.textPrimary),
+                  style: TextStyle(fontWeight: FontWeight.w600, color: colors.textPrimary),
                 ),
               ],
             ),

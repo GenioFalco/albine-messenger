@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/errors/humanize_error.dart';
 import '../../data/providers.dart';
 import '../../data/session_controller.dart';
-import '../../shared/widgets/glass.dart';
+import '../../shared/widgets/app_widgets.dart';
 
 /// Opens a modal to look up a friend by exact username and start (or
 /// resume) a direct conversation with them. Returns the conversation id.
@@ -12,7 +12,6 @@ Future<String?> showNewChatSheet(BuildContext context) {
   return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: Colors.transparent,
     builder: (context) => const _NewChatSheet(),
   );
 }
@@ -84,44 +83,28 @@ class _NewChatSheetState extends ConsumerState<_NewChatSheet> {
         top: 16,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
-      child: FormPanel(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Новый чат',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 16),
-            LabeledGlassField(
-              label: 'Имя пользователя друга',
-              controller: _usernameController,
-              autofocus: true,
-              onSubmitted: (_) => _start(),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              GlassErrorText(_error!),
-            ],
-            const SizedBox(height: 16),
-            LayoutBuilder(
-              builder: (context, constraints) => GlassButton.custom(
-                width: constraints.maxWidth,
-                height: 54,
-                enabled: !_loading,
-                onTap: _start,
-                child: _loading
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2.4),
-                      )
-                    : const Text('Начать чат', style: TextStyle(fontWeight: FontWeight.w600)),
-              ),
-            ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Новый чат',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 16),
+          LabeledField(
+            label: 'Имя пользователя друга',
+            controller: _usernameController,
+            autofocus: true,
+            onSubmitted: (_) => _start(),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            AppErrorText(_error!),
           ],
-        ),
+          const SizedBox(height: 16),
+          AppButton(label: 'Начать чат', loading: _loading, onPressed: _start),
+        ],
       ),
     );
   }

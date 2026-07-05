@@ -7,7 +7,7 @@ import '../../core/theme/albine_theme.dart';
 import '../../data/providers.dart';
 import '../../data/session_controller.dart';
 import '../../domain/models.dart';
-import '../../shared/widgets/glass.dart';
+import '../../shared/widgets/app_widgets.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.conversationId, this.onBack});
@@ -60,21 +60,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final summaryAsync = ref.watch(conversationSummaryProvider(widget.conversationId));
     final myId = ref.watch(sessionControllerProvider).profile?.id;
     final chat = ref.watch(chatRepositoryProvider);
-    final glass = Theme.of(context).extension<AlbineGlass>()!;
+    final colors = Theme.of(context).extension<AlbineColors>()!;
 
-    return GlassScaffold(
-      backgroundColor: glass.background,
-      appBar: GlassAppBar(
-        leading: GlassIconButton(
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          size: 40,
           onPressed: widget.onBack ?? () => context.go('/chats'),
         ),
         title: Text(summaryAsync.value?.displayTitle ?? '...'),
       ),
       body: summaryAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: GlassErrorText(humanizeError(e))),
+        error: (e, _) => Center(child: AppErrorText(humanizeError(e))),
         data: (conversation) {
           if (conversation == null) {
             return const Center(child: Text('Чат не найден'));
@@ -89,7 +87,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               Expanded(
                 child: messages.when(
                   loading: () => const Center(child: CircularProgressIndicator()),
-                  error: (e, _) => Center(child: GlassErrorText(humanizeError(e))),
+                  error: (e, _) => Center(child: AppErrorText(humanizeError(e))),
                   data: (items) {
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (_scrollController.hasClients) {
@@ -114,12 +112,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               margin: const EdgeInsets.symmetric(vertical: 4),
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                               decoration: BoxDecoration(
-                                color: mine ? glass.link : glass.panelTintStrong,
+                                color: mine ? colors.accent : colors.surface,
                                 borderRadius: BorderRadius.circular(16),
                               ),
                               child: Text(
                                 text,
-                                style: TextStyle(color: mine ? Colors.white : glass.textPrimary),
+                                style: TextStyle(color: mine ? colors.textOnAccent : colors.textPrimary),
                               ),
                             ),
                           ),
@@ -129,31 +127,47 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   },
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: GlassTextField(
-                        controller: _textController,
-                        placeholder: 'Сообщение...',
-                        onSubmitted: (_) => _send(conversation),
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _textController,
+                          style: TextStyle(color: colors.textPrimary),
+                          decoration: InputDecoration(
+                            hintText: 'Сообщение...',
+                            filled: true,
+                            fillColor: colors.surface,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(colors.radius),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                          onSubmitted: (_) => _send(conversation),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    GlassIconButton(
-                      icon: _sending
-                          ? SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: glass.textPrimary),
-                            )
-                          : Icon(Icons.send, color: glass.link),
-                      size: 48,
-                      onPressed: _sending ? null : () => _send(conversation),
-                    ),
-                  ],
+                      const SizedBox(width: 8),
+                      IconButton.filled(
+                        icon: _sending
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: colors.textOnAccent,
+                                ),
+                              )
+                            : const Icon(Icons.send),
+                        style: IconButton.styleFrom(backgroundColor: colors.accent),
+                        onPressed: _sending ? null : () => _send(conversation),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],

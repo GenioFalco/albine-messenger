@@ -5,7 +5,7 @@ import '../../core/errors/humanize_error.dart';
 import '../../core/theme/albine_theme.dart';
 import '../../data/providers.dart';
 import '../../data/session_controller.dart';
-import '../../shared/widgets/glass.dart';
+import '../../shared/widgets/app_widgets.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -87,120 +87,104 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final glass = Theme.of(context).extension<AlbineGlass>()!;
+    final colors = Theme.of(context).extension<AlbineColors>()!;
 
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: GlassBackdrop(
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Albine',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 28),
-                    FormPanel(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            _isSignUp ? 'Регистрация' : 'Вход в аккаунт',
-                            textAlign: TextAlign.center,
-                            style: Theme.of(
-                              context,
-                            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            _isSignUp ? 'Придумай email и пароль' : 'Введите данные для входа',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: glass.textSecondary),
-                          ),
-                          const SizedBox(height: 24),
-                          LabeledGlassField(
-                            label: 'Email',
-                            controller: _emailController,
-                            keyboardType: TextInputType.emailAddress,
-                            placeholder: 'example@mail.com',
-                          ),
-                          const SizedBox(height: 16),
-                          LabeledGlassField(
-                            label: 'Пароль',
-                            controller: _passwordController,
-                            obscureText: true,
-                            placeholder: 'Введите пароль',
-                            onSubmitted: (_) => _submit(),
-                          ),
-                          if (!_isSignUp) ...[
-                            const SizedBox(height: 10),
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: GlassLink(text: 'Забыли пароль?', onTap: _forgotPassword),
-                            ),
-                          ],
-                          if (_error != null) ...[
-                            const SizedBox(height: 12),
-                            GlassErrorText(_error!),
-                          ],
-                          if (_info != null) ...[
-                            const SizedBox(height: 12),
-                            Text(_info!, style: TextStyle(color: glass.link)),
-                          ],
-                          const SizedBox(height: 24),
-                          LayoutBuilder(
-                            builder: (context, constraints) => GlassButton.custom(
-                              width: constraints.maxWidth,
-                              height: 54,
-                              enabled: !_loading,
-                              onTap: _submit,
-                              child: _loading
-                                  ? const SizedBox(
-                                      width: 22,
-                                      height: 22,
-                                      child: CircularProgressIndicator(strokeWidth: 2.4),
-                                    )
-                                  : Text(
-                                      _isSignUp ? 'Зарегистрироваться' : 'Войти',
-                                      style: const TextStyle(fontWeight: FontWeight.w600),
-                                    ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Albine',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 28),
+                  FormPanel(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          _isSignUp ? 'Уже есть аккаунт?' : 'Нет аккаунта?',
-                          style: TextStyle(color: glass.textSecondary),
+                          _isSignUp ? 'Регистрация' : 'Вход в аккаунт',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(
+                            context,
+                          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
                         ),
-                        const SizedBox(width: 6),
-                        GlassLink(
-                          text: _isSignUp ? 'Войти' : 'Зарегистрироваться',
-                          onTap: () => setState(() {
-                            _isSignUp = !_isSignUp;
-                            _error = null;
-                            _info = null;
-                          }),
+                        const SizedBox(height: 6),
+                        Text(
+                          _isSignUp ? 'Придумай email и пароль' : 'Введите данные для входа',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: colors.textSecondary),
+                        ),
+                        const SizedBox(height: 24),
+                        LabeledField(
+                          label: 'Email',
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          hintText: 'example@mail.com',
+                        ),
+                        const SizedBox(height: 16),
+                        LabeledField(
+                          label: 'Пароль',
+                          controller: _passwordController,
+                          obscureText: true,
+                          hintText: 'Введите пароль',
+                          onSubmitted: (_) => _submit(),
+                        ),
+                        if (!_isSignUp) ...[
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: AppLink(text: 'Забыли пароль?', onTap: _forgotPassword),
+                          ),
+                        ],
+                        if (_error != null) ...[
+                          const SizedBox(height: 12),
+                          AppErrorText(_error!),
+                        ],
+                        if (_info != null) ...[
+                          const SizedBox(height: 12),
+                          Text(_info!, style: TextStyle(color: colors.accent)),
+                        ],
+                        const SizedBox(height: 24),
+                        AppButton(
+                          label: _isSignUp ? 'Зарегистрироваться' : 'Войти',
+                          loading: _loading,
+                          onPressed: _submit,
                         ),
                       ],
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        _isSignUp ? 'Уже есть аккаунт?' : 'Нет аккаунта?',
+                        style: TextStyle(color: colors.textSecondary),
+                      ),
+                      const SizedBox(width: 6),
+                      AppLink(
+                        text: _isSignUp ? 'Войти' : 'Зарегистрироваться',
+                        onTap: () => setState(() {
+                          _isSignUp = !_isSignUp;
+                          _error = null;
+                          _info = null;
+                        }),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ),

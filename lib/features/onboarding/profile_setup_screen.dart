@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/albine_theme.dart';
 import '../../data/session_controller.dart';
-import '../../shared/widgets/glass.dart';
+import '../../shared/widgets/app_widgets.dart';
 
 class ProfileSetupScreen extends ConsumerStatefulWidget {
   const ProfileSetupScreen({super.key});
@@ -44,62 +44,45 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final glass = Theme.of(context).extension<AlbineGlass>()!;
+    final colors = Theme.of(context).extension<AlbineColors>()!;
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: GlassBackdrop(
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: FormPanel(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        'Почти готово',
-                        style: Theme.of(
-                          context,
-                        ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Придумай имя пользователя, под которым тебя увидят друзья.',
-                        style: TextStyle(color: glass.textSecondary),
-                      ),
-                      const SizedBox(height: 24),
-                      LabeledGlassField(
-                        label: 'Имя пользователя',
-                        controller: _usernameController,
-                        autofocus: true,
-                      ),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: FormPanel(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Почти готово',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Придумай имя пользователя, под которым тебя увидят друзья.',
+                      style: TextStyle(color: colors.textSecondary),
+                    ),
+                    const SizedBox(height: 24),
+                    LabeledField(
+                      label: 'Имя пользователя',
+                      controller: _usernameController,
+                      autofocus: true,
+                    ),
+                    const SizedBox(height: 12),
+                    LabeledField(label: 'Отображаемое имя', controller: _displayNameController),
+                    if (_error != null) ...[
                       const SizedBox(height: 12),
-                      LabeledGlassField(label: 'Отображаемое имя', controller: _displayNameController),
-                      if (_error != null) ...[
-                        const SizedBox(height: 12),
-                        GlassErrorText(_error!),
-                      ],
-                      const SizedBox(height: 20),
-                      LayoutBuilder(
-                        builder: (context, constraints) => GlassButton.custom(
-                          width: constraints.maxWidth,
-                          height: 54,
-                          enabled: !_loading,
-                          onTap: _submit,
-                          child: _loading
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(strokeWidth: 2.4),
-                                )
-                              : const Text('Продолжить', style: TextStyle(fontWeight: FontWeight.w600)),
-                        ),
-                      ),
+                      AppErrorText(_error!),
                     ],
-                  ),
+                    const SizedBox(height: 20),
+                    AppButton(label: 'Продолжить', loading: _loading, onPressed: _submit),
+                  ],
                 ),
               ),
             ),
