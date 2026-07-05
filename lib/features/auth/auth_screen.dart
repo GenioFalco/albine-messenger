@@ -105,59 +105,80 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     Text(
                       'Albine',
                       textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-                    Text(
-                      _isSignUp ? 'Регистрация' : 'Вход в аккаунт',
-                      textAlign: TextAlign.center,
                       style: Theme.of(
                         context,
-                      ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _isSignUp ? 'Придумай email и пароль' : 'Введите данные для входа',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: glass.textSecondary),
+                      ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 28),
-                    GlassTextField(
-                      label: 'Email',
-                      controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      hintText: 'example@mail.com',
-                    ),
-                    const SizedBox(height: 16),
-                    GlassTextField(
-                      label: 'Пароль',
-                      controller: _passwordController,
-                      obscureText: true,
-                      hintText: 'Введите пароль',
-                      onSubmitted: (_) => _submit(),
-                    ),
-                    if (!_isSignUp) ...[
-                      const SizedBox(height: 10),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: GlassLink(text: 'Забыли пароль?', onTap: _forgotPassword),
+                    FormPanel(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            _isSignUp ? 'Регистрация' : 'Вход в аккаунт',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(
+                              context,
+                            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _isSignUp ? 'Придумай email и пароль' : 'Введите данные для входа',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: glass.textSecondary),
+                          ),
+                          const SizedBox(height: 24),
+                          LabeledGlassField(
+                            label: 'Email',
+                            controller: _emailController,
+                            keyboardType: TextInputType.emailAddress,
+                            placeholder: 'example@mail.com',
+                          ),
+                          const SizedBox(height: 16),
+                          LabeledGlassField(
+                            label: 'Пароль',
+                            controller: _passwordController,
+                            obscureText: true,
+                            placeholder: 'Введите пароль',
+                            onSubmitted: (_) => _submit(),
+                          ),
+                          if (!_isSignUp) ...[
+                            const SizedBox(height: 10),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: GlassLink(text: 'Забыли пароль?', onTap: _forgotPassword),
+                            ),
+                          ],
+                          if (_error != null) ...[
+                            const SizedBox(height: 12),
+                            GlassErrorText(_error!),
+                          ],
+                          if (_info != null) ...[
+                            const SizedBox(height: 12),
+                            Text(_info!, style: TextStyle(color: glass.link)),
+                          ],
+                          const SizedBox(height: 24),
+                          LayoutBuilder(
+                            builder: (context, constraints) => GlassButton.custom(
+                              width: constraints.maxWidth,
+                              height: 54,
+                              enabled: !_loading,
+                              onTap: _submit,
+                              child: _loading
+                                  ? const SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(strokeWidth: 2.4),
+                                    )
+                                  : Text(
+                                      _isSignUp ? 'Зарегистрироваться' : 'Войти',
+                                      style: const TextStyle(fontWeight: FontWeight.w600),
+                                    ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                    if (_error != null) ...[
-                      const SizedBox(height: 12),
-                      GlassErrorText(_error!),
-                    ],
-                    if (_info != null) ...[
-                      const SizedBox(height: 12),
-                      Text(_info!, style: TextStyle(color: glass.link)),
-                    ],
-                    const SizedBox(height: 24),
-                    GlassButton(
-                      label: _isSignUp ? 'Зарегистрироваться' : 'Войти',
-                      loading: _loading,
-                      onPressed: _submit,
                     ),
                     const SizedBox(height: 20),
                     Row(

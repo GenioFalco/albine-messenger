@@ -54,8 +54,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
               padding: const EdgeInsets.all(24),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 420),
-                child: GlassContainer(
-                  padding: const EdgeInsets.all(28),
+                child: FormPanel(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -72,19 +71,33 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                         style: TextStyle(color: glass.textSecondary),
                       ),
                       const SizedBox(height: 24),
-                      GlassTextField(
+                      LabeledGlassField(
                         label: 'Имя пользователя',
                         controller: _usernameController,
                         autofocus: true,
                       ),
                       const SizedBox(height: 12),
-                      GlassTextField(label: 'Отображаемое имя', controller: _displayNameController),
+                      LabeledGlassField(label: 'Отображаемое имя', controller: _displayNameController),
                       if (_error != null) ...[
                         const SizedBox(height: 12),
                         GlassErrorText(_error!),
                       ],
                       const SizedBox(height: 20),
-                      GlassButton(label: 'Продолжить', loading: _loading, onPressed: _submit),
+                      LayoutBuilder(
+                        builder: (context, constraints) => GlassButton.custom(
+                          width: constraints.maxWidth,
+                          height: 54,
+                          enabled: !_loading,
+                          onTap: _submit,
+                          child: _loading
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(strokeWidth: 2.4),
+                                )
+                              : const Text('Продолжить', style: TextStyle(fontWeight: FontWeight.w600)),
+                        ),
+                      ),
                     ],
                   ),
                 ),

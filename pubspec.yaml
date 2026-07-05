@@ -41,6 +41,7 @@ dependencies:
   sodium: ^4.0.2+1
   shared_preferences: ^2.5.5
   rxdart: ^0.28.0
+  liquid_glass_widgets: ^0.21.1
 
 dev_dependencies:
   flutter_test:

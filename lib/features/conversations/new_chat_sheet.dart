@@ -84,8 +84,7 @@ class _NewChatSheetState extends ConsumerState<_NewChatSheet> {
         top: 16,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
-      child: GlassContainer(
-        padding: const EdgeInsets.all(24),
+      child: FormPanel(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -95,7 +94,7 @@ class _NewChatSheetState extends ConsumerState<_NewChatSheet> {
               style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 16),
-            GlassTextField(
+            LabeledGlassField(
               label: 'Имя пользователя друга',
               controller: _usernameController,
               autofocus: true,
@@ -106,7 +105,21 @@ class _NewChatSheetState extends ConsumerState<_NewChatSheet> {
               GlassErrorText(_error!),
             ],
             const SizedBox(height: 16),
-            GlassButton(label: 'Начать чат', loading: _loading, onPressed: _start),
+            LayoutBuilder(
+              builder: (context, constraints) => GlassButton.custom(
+                width: constraints.maxWidth,
+                height: 54,
+                enabled: !_loading,
+                onTap: _start,
+                child: _loading
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2.4),
+                      )
+                    : const Text('Начать чат', style: TextStyle(fontWeight: FontWeight.w600)),
+              ),
+            ),
           ],
         ),
       ),

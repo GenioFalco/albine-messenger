@@ -13,19 +13,16 @@ class PlaceholderTabScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final glass = Theme.of(context).extension<AlbineGlass>()!;
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      extendBodyBehindAppBar: true,
-      appBar: GlassAppBar(title: title),
-      body: GlassBackdrop(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Text(
-              'Пока не решили, что здесь будет 🤔',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: glass.textSecondary),
-            ),
+    return GlassScaffold(
+      backgroundColor: glass.background,
+      appBar: GlassAppBar(title: Text(title)),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Text(
+            'Пока не решили, что здесь будет 🤔',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: glass.textSecondary),
           ),
         ),
       ),

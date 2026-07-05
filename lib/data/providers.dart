@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../domain/models.dart';
 import '../services/crypto/crypto_service.dart';
@@ -63,3 +64,7 @@ final conversationSummaryProvider = FutureProvider.autoDispose.family<Conversati
   if (repo == null) return Future.value(null);
   return repo.fetchConversationSummary(conversationId);
 });
+
+/// Which conversation is shown inline in the desktop 3-pane layout's detail
+/// column. Unused on narrow/mobile layouts, which push `/chats/:id` instead.
+final selectedConversationIdProvider = StateProvider<String?>((ref) => null);

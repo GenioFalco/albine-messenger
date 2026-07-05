@@ -1,12 +1,28 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../../core/theme/albine_theme.dart';
 
-/// Flat light background every screen sits on. Deliberately plain — the
-/// glass panels on top are where the "liquid glass" effect lives, the
-/// backdrop itself should not compete with them.
+// Real shader-based glass — controls (buttons, icon buttons, text fields,
+// nav bars) come straight from `liquid_glass_widgets`, which renders an
+// actual refraction/blur shader (Impeller on iOS/Android/desktop, a
+// lightweight Skia shader on web) instead of an approximated gradient.
+// Re-exported here so screens only need one import.
+export 'package:liquid_glass_widgets/liquid_glass_widgets.dart'
+    show
+        GlassButton,
+        GlassIconButton,
+        GlassTextField,
+        GlassAppBar,
+        GlassContainer,
+        GlassTabBar,
+        GlassTab,
+        GlassScaffold;
+
+/// Flat light background every screen sits on. Deliberately plain — glass
+/// belongs on individual controls, not the page background (per
+/// liquid_glass_widgets' own guidance: "glass effects belong on the
+/// individual interactive elements — not the bar/page surface itself").
 class GlassBackdrop extends StatelessWidget {
   const GlassBackdrop({super.key, required this.child});
 
@@ -19,286 +35,85 @@ class GlassBackdrop extends StatelessWidget {
   }
 }
 
-/// The core "Liquid Glass" panel: blurred backdrop, translucent white tint,
-/// a brighter hairline along the top edge to fake a specular light
-/// reflection, and a soft shadow — on a light background a border alone
-/// doesn't read as "glass", the elevation has to come from the shadow.
-class GlassContainer extends StatelessWidget {
-  const GlassContainer({
-    super.key,
-    required this.child,
-    this.padding = const EdgeInsets.all(16),
-    this.margin,
-    this.borderRadius,
-    this.strong = false,
-  });
+/// A plain (non-liquid-glass) card used to visually group form fields —
+/// intentionally NOT a glass surface. `liquid_glass_widgets` explicitly warns
+/// against nesting glass controls inside a `GlassContainer`: it flips
+/// `avoidsRefraction` for the whole subtree, degrading every control inside.
+/// This gives the same "grouped panel" look via a soft shadow instead.
+class FormPanel extends StatelessWidget {
+  const FormPanel({super.key, required this.child, this.padding = const EdgeInsets.all(24)});
 
   final Widget child;
   final EdgeInsetsGeometry padding;
-  final EdgeInsetsGeometry? margin;
-  final BorderRadius? borderRadius;
-
-  /// Brighter, more opaque fill — used for primary interactive surfaces
-  /// (buttons) so they read as glass, not as flat outlined boxes.
-  final bool strong;
 
   @override
   Widget build(BuildContext context) {
     final glass = Theme.of(context).extension<AlbineGlass>()!;
-    final radius = borderRadius ?? BorderRadius.circular(glass.radius);
-
     return Container(
-      margin: margin,
+      padding: padding,
       decoration: BoxDecoration(
-        borderRadius: radius,
+        color: glass.panelTint,
+        borderRadius: BorderRadius.circular(glass.radius),
         boxShadow: [BoxShadow(color: glass.shadow, blurRadius: 24, offset: const Offset(0, 8))],
       ),
-      child: ClipRRect(
-        borderRadius: radius,
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: glass.blurSigma, sigmaY: glass.blurSigma),
-          child: Container(
-            padding: padding,
-            decoration: BoxDecoration(
-              color: strong ? glass.panelTintStrong : glass.panelTint,
-              borderRadius: radius,
-              border: Border.all(color: glass.panelBorder, width: 1),
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [glass.highlightBorder, Colors.transparent],
-                stops: const [0, 0.2],
-              ),
-            ),
-            child: child,
-          ),
-        ),
-      ),
+      child: child,
     );
   }
 }
 
+/// A plain grouped list row (avatar/title/subtitle) — content, not a glass
+/// control, so it stays outside the glass layer entirely.
 class GlassCard extends StatelessWidget {
   const GlassCard({
     super.key,
     required this.child,
     this.onTap,
     this.padding = const EdgeInsets.all(16),
+    this.highlighted = false,
   });
 
   final Widget child;
   final VoidCallback? onTap;
   final EdgeInsetsGeometry padding;
 
+  /// True for the currently-selected row in the desktop 3-column layout's
+  /// list pane (there's no route change to signal selection there, so the
+  /// row itself needs to show it).
+  final bool highlighted;
+
   @override
   Widget build(BuildContext context) {
     final glass = Theme.of(context).extension<AlbineGlass>()!;
+    final radius = BorderRadius.circular(glass.radius * 0.7);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(glass.radius * 0.7),
+        color: highlighted ? glass.panelTintStrong : glass.panelTint,
+        borderRadius: radius,
+        elevation: 0,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(glass.radius * 0.7),
-          child: GlassContainer(
-            padding: padding,
-            borderRadius: BorderRadius.circular(glass.radius * 0.7),
-            child: child,
-          ),
+          borderRadius: radius,
+          child: Padding(padding: padding, child: child),
         ),
       ),
     );
   }
 }
 
-class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
-  const GlassAppBar({super.key, required this.title, this.actions, this.leading});
-
-  final String title;
-  final List<Widget>? actions;
-  final Widget? leading;
-
-  @override
-  Size get preferredSize => const Size.fromHeight(72);
-
-  @override
-  Widget build(BuildContext context) {
-    final glass = Theme.of(context).extension<AlbineGlass>()!;
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: glass.blurSigma, sigmaY: glass.blurSigma),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(8, 40, 16, 12),
-          decoration: BoxDecoration(
-            color: glass.panelTint,
-            border: Border(bottom: BorderSide(color: glass.panelBorder)),
-          ),
-          child: Row(
-            children: [
-              ?leading,
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: glass.textPrimary,
-                  ),
-                ),
-              ),
-              ...?actions,
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A pill-shaped "Liquid Glass" button — strong blur, translucent fill, a
-/// bright specular highlight arcing across the top. This is the shape used
-/// throughout (main actions, icon buttons), matching the rounded glass
-/// capsules/orbs of iOS 26 Liquid Glass rather than a flat filled button.
-class GlassButton extends StatelessWidget {
-  const GlassButton({
-    super.key,
-    required this.label,
-    required this.onPressed,
-    this.primary = true,
-    this.loading = false,
-  });
-
-  final String label;
-  final VoidCallback? onPressed;
-  final bool primary;
-  final bool loading;
-
-  @override
-  Widget build(BuildContext context) {
-    final glass = Theme.of(context).extension<AlbineGlass>()!;
-    final disabled = !loading && onPressed == null;
-    final baseTint = primary ? glass.panelTintStrong : glass.panelTint;
-    const height = 54.0;
-
-    return Container(
-      height: height,
-      width: double.infinity,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(height / 2),
-        boxShadow: disabled
-            ? null
-            : [BoxShadow(color: glass.shadow, blurRadius: 16, offset: const Offset(0, 4))],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(height / 2),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: glass.blurSigma, sigmaY: glass.blurSigma),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              shape: BoxShape.rectangle,
-              borderRadius: BorderRadius.circular(height / 2),
-              color: disabled ? baseTint.withValues(alpha: baseTint.a * 0.5) : baseTint,
-              border: Border.all(color: glass.panelBorder),
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [glass.highlightBorder, Colors.transparent],
-                stops: const [0, 0.5],
-              ),
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: loading ? null : onPressed,
-                borderRadius: BorderRadius.circular(height / 2),
-                child: Center(
-                  child: loading
-                      ? SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2.4, color: glass.textOnAccent),
-                        )
-                      : Text(
-                          label,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: glass.textOnAccent.withValues(alpha: disabled ? 0.5 : 1),
-                          ),
-                        ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A small round "Liquid Glass" icon button — same capsule/orb treatment as
-/// [GlassButton] but sized for a single icon (nav bars, FAB-style actions).
-class GlassIconButton extends StatelessWidget {
-  const GlassIconButton({super.key, required this.icon, required this.onPressed, this.size = 44});
-
-  final IconData icon;
-  final VoidCallback? onPressed;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final glass = Theme.of(context).extension<AlbineGlass>()!;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        boxShadow: [BoxShadow(color: glass.shadow, blurRadius: 12, offset: const Offset(0, 3))],
-      ),
-      child: ClipOval(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: glass.blurSigma, sigmaY: glass.blurSigma),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: glass.panelTint,
-              border: Border.all(color: glass.panelBorder),
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [glass.highlightBorder, Colors.transparent],
-                stops: const [0, 0.6],
-              ),
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: onPressed,
-                customBorder: const CircleBorder(),
-                child: Icon(icon, size: size * 0.5, color: glass.textPrimary),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A labelled field: the label sits above the field (not as a floating
-/// inline label), matching the reference layout. Optionally renders a
-/// show/hide toggle for password fields instead of taking [obscureText] as
-/// a fixed flag.
-class GlassTextField extends StatefulWidget {
-  const GlassTextField({
+/// A labelled field: the label sits above a real shader-backed
+/// [GlassTextField], with a self-contained show/hide toggle for password
+/// fields (the package field takes a fixed [obscureText] flag, not a
+/// built-in toggle).
+class LabeledGlassField extends StatefulWidget {
+  const LabeledGlassField({
     super.key,
     required this.label,
     this.controller,
     this.obscureText = false,
     this.autofocus = false,
     this.keyboardType,
-    this.hintText,
+    this.placeholder,
     this.onSubmitted,
   });
 
@@ -307,14 +122,14 @@ class GlassTextField extends StatefulWidget {
   final bool obscureText;
   final bool autofocus;
   final TextInputType? keyboardType;
-  final String? hintText;
+  final String? placeholder;
   final void Function(String)? onSubmitted;
 
   @override
-  State<GlassTextField> createState() => _GlassTextFieldState();
+  State<LabeledGlassField> createState() => _LabeledGlassFieldState();
 }
 
-class _GlassTextFieldState extends State<GlassTextField> {
+class _LabeledGlassFieldState extends State<LabeledGlassField> {
   late bool _obscured = widget.obscureText;
 
   @override
@@ -327,40 +142,21 @@ class _GlassTextFieldState extends State<GlassTextField> {
           padding: const EdgeInsets.only(left: 4, bottom: 6),
           child: Text(widget.label, style: TextStyle(color: glass.textSecondary)),
         ),
-        TextField(
+        GlassTextField(
           controller: widget.controller,
           obscureText: _obscured,
           autofocus: widget.autofocus,
           keyboardType: widget.keyboardType,
+          placeholder: widget.placeholder,
           onSubmitted: widget.onSubmitted,
-          style: TextStyle(color: glass.textPrimary),
-          decoration: InputDecoration(
-            hintText: widget.hintText,
-            hintStyle: TextStyle(color: glass.textSecondary.withValues(alpha: 0.6)),
-            filled: true,
-            fillColor: glass.panelTint,
-            suffixIcon: widget.obscureText
-                ? IconButton(
-                    icon: Icon(
-                      _obscured ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                      color: glass.textSecondary,
-                    ),
-                    onPressed: () => setState(() => _obscured = !_obscured),
-                  )
-                : null,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: glass.panelBorder),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: glass.panelBorder),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: glass.textPrimary),
-            ),
-          ),
+          suffixIcon: widget.obscureText
+              ? Icon(
+                  _obscured ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                  size: 20,
+                  color: glass.textSecondary,
+                )
+              : null,
+          onSuffixTap: widget.obscureText ? () => setState(() => _obscured = !_obscured) : null,
         ),
       ],
     );
@@ -369,8 +165,7 @@ class _GlassTextFieldState extends State<GlassTextField> {
 
 /// The one place error/status messages get rendered — neutral, not red,
 /// with a small outline icon standing in for "something needs your
-/// attention" instead of color-coding it. Keeps every screen's error text
-/// consistent.
+/// attention" instead of color-coding it.
 class GlassErrorText extends StatelessWidget {
   const GlassErrorText(this.message, {super.key});
 
@@ -409,100 +204,6 @@ class GlassLink extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Text(text, style: TextStyle(color: glass.link, fontWeight: FontWeight.w500)),
-    );
-  }
-}
-
-class GlassNavItem {
-  const GlassNavItem({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-}
-
-/// The floating pill-shaped bottom navigation bar (Telegram-style), rendered
-/// as one continuous glass capsule rather than a docked Material bottom bar.
-class GlassBottomNav extends StatelessWidget {
-  const GlassBottomNav({
-    super.key,
-    required this.items,
-    required this.currentIndex,
-    required this.onTap,
-  });
-
-  final List<GlassNavItem> items;
-  final int currentIndex;
-  final ValueChanged<int> onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final glass = Theme.of(context).extension<AlbineGlass>()!;
-    const height = 68.0;
-
-    return Container(
-      height: height,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(height / 2),
-        boxShadow: [BoxShadow(color: glass.shadow, blurRadius: 24, offset: const Offset(0, 8))],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(height / 2),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: glass.blurSigma, sigmaY: glass.blurSigma),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(height / 2),
-              color: glass.panelTintStrong,
-              border: Border.all(color: glass.panelBorder),
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [glass.highlightBorder, Colors.transparent],
-                stops: const [0, 0.4],
-              ),
-            ),
-            child: Row(
-              children: [
-                for (var i = 0; i < items.length; i++)
-                  Expanded(
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => onTap(i),
-                        child: _GlassNavItemContent(item: items[i], active: i == currentIndex),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _GlassNavItemContent extends StatelessWidget {
-  const _GlassNavItemContent({required this.item, required this.active});
-
-  final GlassNavItem item;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    final glass = Theme.of(context).extension<AlbineGlass>()!;
-    final color = active ? glass.textPrimary : glass.textSecondary;
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(item.icon, size: 22, color: color),
-        const SizedBox(height: 3),
-        Text(
-          item.label,
-          style: TextStyle(fontSize: 11, color: color, fontWeight: active ? FontWeight.w600 : null),
-        ),
-      ],
     );
   }
 }

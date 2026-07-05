@@ -75,8 +75,7 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
               padding: const EdgeInsets.all(24),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 420),
-                child: GlassContainer(
-                  padding: const EdgeInsets.all(28),
+                child: FormPanel(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -93,7 +92,7 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
                         style: TextStyle(color: glass.textSecondary),
                       ),
                       const SizedBox(height: 20),
-                      GlassTextField(
+                      LabeledGlassField(
                         label: 'Пароль',
                         controller: _passwordController,
                         obscureText: true,
@@ -110,7 +109,21 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
                         ),
                       ],
                       const SizedBox(height: 20),
-                      GlassButton(label: 'Продолжить', loading: _loading, onPressed: _submit),
+                      LayoutBuilder(
+                        builder: (context, constraints) => GlassButton.custom(
+                          width: constraints.maxWidth,
+                          height: 54,
+                          enabled: !_loading,
+                          onTap: _submit,
+                          child: _loading
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(strokeWidth: 2.4),
+                                )
+                              : const Text('Продолжить', style: TextStyle(fontWeight: FontWeight.w600)),
+                        ),
+                      ),
                       const SizedBox(height: 8),
                       TextButton(
                         onPressed: () => ref.read(sessionControllerProvider.notifier).signOut(),
