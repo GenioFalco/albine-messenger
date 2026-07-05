@@ -7,6 +7,7 @@ import '../../features/auth/auth_screen.dart';
 import '../../features/chat/chat_screen.dart';
 import '../../features/onboarding/profile_setup_screen.dart';
 import '../../features/onboarding/unlock_screen.dart';
+import '../../features/profile/profile_screen.dart';
 import '../../features/shell/main_shell.dart';
 import '../../features/splash/splash_screen.dart';
 
@@ -32,6 +33,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const ProfileSetupScreen(),
       ),
       GoRoute(path: '/unlock', builder: (context, state) => const UnlockScreen()),
+      GoRoute(path: '/profile', builder: (context, state) => const ProfileScreen()),
       GoRoute(
         path: '/chats',
         builder: (context, state) => const MainShell(),

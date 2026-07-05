@@ -28,14 +28,14 @@ class AlbineColors extends ThemeExtension<AlbineColors> {
 
   static const light = AlbineColors(
     background: Color(0xFFFFFFFF),
-    surface: Color(0xFFF2F2F5),
-    surfaceStrong: Color(0xFFE7E7EC),
-    border: Color(0xFFE2E2E7),
-    textPrimary: Color(0xFF1C1C1E),
-    textSecondary: Color(0xFF6E6E73),
-    accent: Color(0xFF2481CC),
+    surface: Color(0xFFF3F4F6),
+    surfaceStrong: Color(0xFFE9EBEF),
+    border: Color(0xFFECEEF1),
+    textPrimary: Color(0xFF15181D),
+    textSecondary: Color(0xFF8A9099),
+    accent: Color(0xFF2F6BFF),
     textOnAccent: Color(0xFFFFFFFF),
-    radius: 14,
+    radius: 20,
   );
 
   @override

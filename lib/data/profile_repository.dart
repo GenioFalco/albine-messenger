@@ -24,6 +24,22 @@ class ProfileRepository {
     return row == null ? null : AppProfile.fromRow(row);
   }
 
+  /// Partial search over username and display name for the "find friends"
+  /// flow. Excludes the current user. RLS ("profiles readable by
+  /// authenticated") already allows reading every profile.
+  Future<List<AppProfile>> searchProfiles(String query, {required String excludeUserId}) async {
+    // Strip characters that would break PostgREST's or()/ilike filter syntax.
+    final q = query.trim().replaceAll(RegExp(r'[,%()*]'), '');
+    if (q.isEmpty) return [];
+    final rows = await _client
+        .from('profiles')
+        .select()
+        .or('username.ilike.%$q%,display_name.ilike.%$q%')
+        .neq('id', excludeUserId)
+        .limit(20);
+    return [for (final r in rows) AppProfile.fromRow(r)];
+  }
+
   Future<bool> isUsernameTaken(String username) async {
     final row = await _client
         .from('profiles')

@@ -5,115 +5,76 @@ import '../../core/theme/albine_theme.dart';
 import '../../data/providers.dart';
 import '../chat/chat_screen.dart';
 import '../conversations/conversations_screen.dart';
-import '../profile/profile_screen.dart';
-import 'placeholder_tab_screen.dart';
 
-/// Below this width, the shell is a single-column, bottom-nav mobile layout.
-/// At or above it, it's a 3-column layout: icon rail, list, detail — all
-/// visible at once, nothing pushed as a separate route.
+/// Below this width the app is a single-column mobile layout: the chat list
+/// is the whole screen and opening a chat pushes `/chats/:id`. At or above
+/// it, a 2-column desktop layout: chat-list pane on the left, the selected
+/// chat inline on the right.
 const _wideBreakpoint = 900.0;
 
-class MainShell extends ConsumerStatefulWidget {
+class MainShell extends StatelessWidget {
   const MainShell({super.key});
-
-  @override
-  ConsumerState<MainShell> createState() => _MainShellState();
-}
-
-class _MainShellState extends ConsumerState<MainShell> {
-  int _index = 0;
-
-  static const _destinations = [
-    NavigationDestination(icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: 'Чаты'),
-    NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Профиль'),
-    NavigationDestination(icon: Icon(Icons.more_horiz), label: 'Ещё'),
-  ];
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        return constraints.maxWidth >= _wideBreakpoint ? _buildWide(context) : _buildNarrow(context);
+        if (constraints.maxWidth < _wideBreakpoint) {
+          return const ConversationsScreen();
+        }
+        return const _WideLayout();
       },
     );
   }
+}
 
-  Widget _buildNarrow(BuildContext context) {
-    const tabs = [
-      ConversationsScreen(),
-      ProfileScreen(),
-      PlaceholderTabScreen(title: 'Ещё'),
-    ];
+class _WideLayout extends ConsumerWidget {
+  const _WideLayout();
 
-    return Scaffold(
-      body: IndexedStack(index: _index, children: tabs),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: _destinations,
-      ),
-    );
-  }
-
-  Widget _buildWide(BuildContext context) {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final colors = Theme.of(context).extension<AlbineColors>()!;
-
-    Widget content;
-    switch (_index) {
-      case 0:
-        content = const _ChatsPane();
-      case 1:
-        content = const ProfileScreen();
-      default:
-        content = const PlaceholderTabScreen(title: 'Ещё');
-    }
+    final selectedId = ref.watch(selectedConversationIdProvider);
 
     return Scaffold(
       body: Row(
         children: [
-          NavigationRail(
-            selectedIndex: _index,
-            onDestinationSelected: (i) => setState(() => _index = i),
-            labelType: NavigationRailLabelType.all,
-            backgroundColor: colors.background,
-            destinations: _destinations
-                .map((d) => NavigationRailDestination(icon: d.icon, selectedIcon: d.selectedIcon, label: Text(d.label)))
-                .toList(),
+          SizedBox(
+            width: 360,
+            child: SafeArea(right: false, child: const ConversationsScreen(embedded: true)),
           ),
-          const VerticalDivider(width: 1),
-          Expanded(child: content),
+          VerticalDivider(width: 1, color: colors.border),
+          Expanded(
+            child: selectedId == null
+                ? _EmptyDetail(colors: colors)
+                : ChatScreen(
+                    key: ValueKey(selectedId),
+                    conversationId: selectedId,
+                    onBack: () => ref.read(selectedConversationIdProvider.notifier).state = null,
+                  ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _ChatsPane extends ConsumerWidget {
-  const _ChatsPane();
+class _EmptyDetail extends StatelessWidget {
+  const _EmptyDetail({required this.colors});
+
+  final AlbineColors colors;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final selectedId = ref.watch(selectedConversationIdProvider);
-    final colors = Theme.of(context).extension<AlbineColors>()!;
-    return Row(
-      children: [
-        SizedBox(width: 340, child: const ConversationsScreen(embedded: true)),
-        const VerticalDivider(width: 1),
-        Expanded(
-          child: selectedId == null
-              ? Center(
-                  child: Text(
-                    'Выбери чат слева',
-                    style: TextStyle(color: colors.textSecondary),
-                  ),
-                )
-              : ChatScreen(
-                  key: ValueKey(selectedId),
-                  conversationId: selectedId,
-                  onBack: () => ref.read(selectedConversationIdProvider.notifier).state = null,
-                ),
-        ),
-      ],
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.chat_bubble_outline, size: 48, color: colors.textSecondary),
+          const SizedBox(height: 12),
+          Text('Выбери чат, чтобы начать переписку', style: TextStyle(color: colors.textSecondary)),
+        ],
+      ),
     );
   }
 }
