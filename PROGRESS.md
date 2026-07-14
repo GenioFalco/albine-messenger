@@ -73,3 +73,19 @@ Session-level working log. Updated before major stages and at least every 30–4
 **Next steps:**
 1. Manual E2E in a real browser (already the plan going forward — this environment's browser tooling can't drive canvaskit): two accounts messaging continuously while alternating sign-out/in and reloads on one side, confirming no desync; a rotate-key action confirming old messages stay readable and new messages work for both parties afterward.
 2. If clean, this closes out the M1.5 regression — no further known gaps before M3.
+
+---
+
+## 2026-07-14 (later still) — rotate-key/groups crash + silent send failures
+
+**Status:** Live testing surfaced a second regression, this time in "Сбросить ключ шифрования": rotating the identity key never re-sealed this device's copy of each group's symmetric key, so every group became permanently undecryptable (`crypto_box_seal_open` throwing, since the seal is bound to the public key active when it was sealed). Separately, `chat_screen.dart`'s send button had no error handling at all — a thrown error silently cleared the typed message with zero feedback, which is how the above surfaced as "typed a message, nothing happened."
+
+**Changed files:**
+- `lib/data/session_controller.dart` — `rotateIdentityKey` now re-seals every group key this device holds from the old public key to the new one before the old keypair is disposed (`_reSealGroupKeys`, best-effort per group so one bad row doesn't abort the rotation).
+- `lib/features/chat/chat_screen.dart` — `_send()` now catches errors, restores the typed text, and shows a `SnackBar` via `humanizeError` instead of failing silently.
+
+**Open issue:** a second, distinct `SodiumException: A low-level libsodium operation has failed` was reported afterward from a *direct* (1:1) conversation — confirmed not the group-reseal bug (that path only runs for `sendGroupMessage`). Cause not yet identified; need the full browser-console stack trace (not just the exception message) to localize which of `_signal.encryptForContact`/`_crypto.encryptDirectMessage` is throwing.
+
+**Next steps:**
+1. Get the full stack trace for the direct-chat `SodiumException` and root-cause it.
+2. Re-run the M1.5 manual E2E checklist above once both issues are resolved.

@@ -54,6 +54,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           text: text,
         );
       }
+    } catch (e) {
+      // Without this, a thrown error (e.g. a group whose key this device
+      // can no longer open) silently ate the typed text and left the user
+      // with no feedback at all — restore it and surface what happened.
+      if (mounted) {
+        _textController.text = text;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Не удалось отправить: ${humanizeError(e)}')));
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }

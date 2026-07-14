@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -355,7 +356,6 @@ class SessionController extends Notifier<SessionState> {
       expectedPublicKey: profile.identityPubkey,
     );
     if (verifyPair == null) return 'Неверный пароль';
-    verifyPair.dispose();
 
     await _storage.addRetiredSecretKey(user.id, currentSecretBytes);
 
@@ -363,9 +363,19 @@ class SessionController extends Notifier<SessionState> {
     try {
       await _profiles.updateIdentityPubkey(userId: user.id, identityPubkey: newKeyPair.publicKey);
     } catch (e) {
+      verifyPair.dispose();
       newKeyPair.dispose();
       return 'Не удалось обновить ключ. ${humanizeError(e)}';
     }
+
+    // Group keys are sealed (crypto_box_seal) to *this device's current*
+    // public key — without re-sealing them to the new key before the old
+    // one is gone, every group this account belongs to becomes permanently
+    // unopenable (crypto_box_seal_open fails outright, not gracefully) the
+    // moment the rotation finishes. Must happen while `verifyPair` (the old
+    // key) is still alive.
+    await _reSealGroupKeys(userId: user.id, oldKeyPair: verifyPair, newPublicKey: newKeyPair.publicKey);
+    verifyPair.dispose();
 
     final newSecretBytes = newKeyPair.secretKey.extractBytes();
     final newWrapped = _crypto.wrapSecret(secret: newSecretBytes, passphrase: password);
@@ -389,6 +399,42 @@ class SessionController extends Notifier<SessionState> {
       identityKeyPair: newKeyPair,
     );
     return null;
+  }
+
+  /// Re-seals this device's copy of every group key it holds from
+  /// [oldKeyPair]'s public key to [newPublicKey], so group chats keep
+  /// working right after a rotation instead of failing the next
+  /// `crypto_box_seal_open` call. Best-effort per group — one group's key
+  /// failing to re-seal (already stale, a concurrent update, etc.) doesn't
+  /// abort the rest, since rotation itself is the security-critical part.
+  Future<void> _reSealGroupKeys({
+    required String userId,
+    required IdentityKeyPair oldKeyPair,
+    required Uint8List newPublicKey,
+  }) async {
+    final rows = await _client
+        .from('conversation_members')
+        .select('conversation_id, wrapped_group_key, conversations!inner(kind)')
+        .eq('user_id', userId)
+        .eq('conversations.kind', 'group');
+
+    for (final row in rows) {
+      final wrapped = row['wrapped_group_key'] as String?;
+      if (wrapped == null) continue;
+      try {
+        final groupKey = _crypto.openSealedGroupKey(myKeyPair: oldKeyPair, sealed: base64Decode(wrapped));
+        final resealed = _crypto.sealGroupKeyForMember(memberPublicKey: newPublicKey, groupKey: groupKey);
+        groupKey.dispose();
+        await _client
+            .from('conversation_members')
+            .update({'wrapped_group_key': base64Encode(resealed)})
+            .eq('conversation_id', row['conversation_id'] as String)
+            .eq('user_id', userId);
+      } catch (_) {
+        // Leave this one group's key as-is; it'll surface as a normal
+        // "не удалось расшифровать" instead of blocking the rotation.
+      }
+    }
   }
 
   /// The only thing that forces the password again on this device — clears
