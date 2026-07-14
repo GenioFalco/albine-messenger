@@ -319,7 +319,12 @@ class ChatRepository {
         .from('messages')
         .stream(primaryKey: ['id'])
         .eq('conversation_id', conversationId)
-        .order('created_at')
+        // Unlike the regular query builder (ascending by default),
+        // SupabaseStreamBuilder.order() defaults to `ascending: false` —
+        // without this explicit `true`, messages came back newest-first,
+        // so new messages rendered at the *top* of the (non-reversed)
+        // ListView instead of the bottom.
+        .order('created_at', ascending: true)
         .map((rows) => rows.map(ChatMessage.fromRow).toList())
         .asyncMap((messages) async {
           await _prewarmSignalDecryption(messages);
