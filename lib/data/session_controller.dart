@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -6,7 +9,10 @@ import '../domain/models.dart';
 import '../services/crypto/crypto_models.dart';
 import '../services/crypto/crypto_service.dart';
 import '../services/crypto/key_storage.dart';
+import '../services/signal/signal_local_store.dart';
+import '../services/signal/signal_service.dart';
 import '../services/supabase/supabase_providers.dart';
+import 'key_backup_repository.dart';
 import 'profile_repository.dart';
 import 'providers.dart';
 
@@ -66,6 +72,29 @@ class SessionController extends Notifier<SessionState> {
   CryptoService get _crypto => ref.read(cryptoServiceProvider);
   KeyStorage get _storage => ref.read(keyStorageProvider);
   ProfileRepository get _profiles => ref.read(profileRepositoryProvider);
+  KeyBackupRepository get _keyBackup => ref.read(keyBackupRepositoryProvider);
+
+  /// Bootstraps (or refreshes) this device's forward-secrecy key material.
+  /// Built directly rather than via `signalServiceProvider` — that provider
+  /// reactively depends on this very controller's state for the UI's
+  /// benefit, so reading it back from inside a method that's about to
+  /// change that state would be circular; a plain one-shot instance avoids
+  /// that entirely. Failure here must never block reaching [SessionStatus.ready]
+  /// — legacy crypto_box sending still works even if this hasn't run yet.
+  Future<void> _bootstrapSignal(String userId, Uint8List identitySecretKeyBytes) async {
+    try {
+      final signal = SignalService(
+        store: SignalLocalStore(userId),
+        directory: ref.read(signalDirectoryRepositoryProvider),
+        myUserId: userId,
+      );
+      await signal.ensureBootstrapped(identitySecretKeyBytes);
+    } catch (_) {
+      // Best-effort: next unlock (or the periodic top-up inside
+      // ensureBootstrapped itself) tries again. Sending still works via the
+      // crypto_box fallback in ChatRepository.sendDirectMessage.
+    }
+  }
 
   /// Called right after a successful sign-in/sign-up so later steps in this
   /// same session don't have to ask for the password again.
@@ -109,7 +138,13 @@ class SessionController extends Notifier<SessionState> {
 
   /// Unlocks (or, on a new device, transparently creates) the identity key
   /// for this session. Returns an error message, or null on success.
-  Future<String?> unlock(String password) async {
+  ///
+  /// [trustServerBackup] is false only right after a Supabase password
+  /// reset (see [resetLocalKeyAndUnlock]): the server backup is still
+  /// wrapped under the *old* password there, so attempting it would just
+  /// reject the correct new password with "wrong password" instead of
+  /// falling through to generate (and re-back-up) a fresh key.
+  Future<String?> unlock(String password, {bool trustServerBackup = true}) async {
     final user = _client.auth.currentUser;
     final profile = state.profile;
     if (user == null || profile == null) return 'Внутренняя ошибка сессии';
@@ -125,9 +160,10 @@ class SessionController extends Notifier<SessionState> {
         if (keyPair == null) {
           // Locally wrapped key doesn't match the server-side public key
           // anymore (e.g. it was regenerated from another device). Fall
-          // through and treat this like a new device below.
+          // through to the server-side backup below.
         } else {
           state = state._copyWith(status: SessionStatus.ready, identityKeyPair: keyPair);
+          unawaited(_bootstrapSignal(user.id, secretBytes));
           return null;
         }
       } catch (_) {
@@ -135,10 +171,39 @@ class SessionController extends Notifier<SessionState> {
       }
     }
 
-    // New device, or the local key no longer matches: generate a fresh
-    // keypair transparently, the same way a normal messenger would when you
-    // log in on a device that never had your keys. Old message history
-    // becomes unreadable on this device — there is no server-side escrow.
+    // New device, or the local key no longer matches: try the server-side
+    // encrypted backup before ever generating a fresh keypair.
+    final backup = trustServerBackup ? await _keyBackup.fetchBackup(user.id) : null;
+    if (backup != null) {
+      Uint8List secretBytes;
+      try {
+        secretBytes = _crypto.unwrapSecret(wrapped: backup, passphrase: password);
+      } catch (_) {
+        // A backup exists for this account — never fall through to
+        // fresh-keygen here, or a wrong password on a new device would
+        // silently and permanently destroy otherwise-recoverable history.
+        return 'Неверный пароль';
+      }
+      final keyPair = _crypto.restoreIdentityKeyPair(
+        secretKeyBytes: secretBytes,
+        expectedPublicKey: profile.identityPubkey,
+      );
+      if (keyPair != null) {
+        await _storage.saveWrappedPrivateKey(user.id, backup);
+        _wrappedKeyCache = backup;
+        state = state._copyWith(status: SessionStatus.ready, identityKeyPair: keyPair);
+        unawaited(_bootstrapSignal(user.id, secretBytes));
+        return null;
+      }
+      // Backup unwrapped fine but doesn't match the current server pubkey
+      // (stale backup from before the key was regenerated elsewhere without
+      // one). Fall through to fresh keygen below, same as the no-backup case.
+    }
+
+    // No usable key anywhere: generate a fresh keypair transparently, the
+    // same way a normal messenger would when you log in on a device that
+    // never had your keys — and back it up this time so this never has to
+    // happen again for this account.
     final keyPair = _crypto.generateIdentityKeyPair();
     try {
       await _profiles.updateIdentityPubkey(userId: user.id, identityPubkey: keyPair.publicKey);
@@ -147,9 +212,10 @@ class SessionController extends Notifier<SessionState> {
       return 'Не удалось создать ключ для этого устройства. ${humanizeError(e)}';
     }
 
-    final secretBytes = keyPair.secretKey.extractBytes();
-    final newWrapped = _crypto.wrapSecret(secret: secretBytes, passphrase: password);
+    final freshSecretBytes = keyPair.secretKey.extractBytes();
+    final newWrapped = _crypto.wrapSecret(secret: freshSecretBytes, passphrase: password);
     await _storage.saveWrappedPrivateKey(user.id, newWrapped);
+    await _keyBackup.upsertBackup(user.id, newWrapped);
     _wrappedKeyCache = newWrapped;
 
     state = state._copyWith(
@@ -163,19 +229,22 @@ class SessionController extends Notifier<SessionState> {
       ),
       identityKeyPair: keyPair,
     );
+    unawaited(_bootstrapSignal(user.id, freshSecretBytes));
     return null;
   }
 
-  /// Forgets whatever key is wrapped locally and re-runs [unlock], which
-  /// then takes the "new device" path and generates a fresh keypair. Used
-  /// when the account password was reset via email — the old local key was
-  /// wrapped with a password that no longer exists, so unlocking normally
-  /// always fails with "wrong password" for reasons the user can't fix.
+  /// Forgets whatever key is wrapped locally and re-runs [unlock] with the
+  /// server backup untrusted, so it takes the "new device" path and
+  /// generates a fresh keypair (which then re-uploads a backup wrapped
+  /// under the new password). Used when the account password was reset via
+  /// email — both the local key and the old server backup are wrapped with
+  /// a password that no longer exists, so unlocking normally would always
+  /// fail with "wrong password" for reasons the user can't fix.
   Future<String?> resetLocalKeyAndUnlock(String password) async {
     final user = _client.auth.currentUser;
     if (user != null) await _storage.clear(user.id);
     _wrappedKeyCache = null;
-    return unlock(password);
+    return unlock(password, trustServerBackup: false);
   }
 
   /// First-ever login: creates the profile and the identity keypair, using
@@ -206,9 +275,11 @@ class SessionController extends Notifier<SessionState> {
     final secretBytes = keyPair.secretKey.extractBytes();
     final wrapped = _crypto.wrapSecret(secret: secretBytes, passphrase: password);
     await _storage.saveWrappedPrivateKey(user.id, wrapped);
+    await _keyBackup.upsertBackup(user.id, wrapped);
     _pendingPassword = null;
 
     state = SessionState(status: SessionStatus.ready, profile: profile, identityKeyPair: keyPair);
+    unawaited(_bootstrapSignal(user.id, secretBytes));
     return null;
   }
 

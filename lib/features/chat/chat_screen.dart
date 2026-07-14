@@ -38,21 +38,41 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<void> _send(ConversationSummary conversation) async {
     final text = _textController.text.trim();
-    final peer = conversation.peer;
     final chat = ref.read(chatRepositoryProvider);
-    if (text.isEmpty || peer == null || chat == null) return;
+    if (text.isEmpty || chat == null) return;
+    if (conversation.kind == ConversationKind.direct && conversation.peer == null) return;
 
     setState(() => _sending = true);
     _textController.clear();
     try {
-      await chat.sendDirectMessage(
-        conversationId: widget.conversationId,
-        peerPublicKey: peer.identityPubkey,
-        text: text,
-      );
+      if (conversation.kind == ConversationKind.group) {
+        await chat.sendGroupMessage(conversationId: widget.conversationId, text: text);
+      } else {
+        await chat.sendDirectMessage(
+          conversationId: widget.conversationId,
+          peer: conversation.peer!,
+          text: text,
+        );
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  Widget _buildTitle(BuildContext context, ConversationSummary? conversation) {
+    final title = Text(conversation?.displayTitle ?? '...');
+    if (conversation?.kind != ConversationKind.group) return title;
+
+    // `members` holds only the *other* participants — +1 for me.
+    final count = (conversation?.members?.length ?? 0) + 1;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        title,
+        Text('$count участников', style: Theme.of(context).textTheme.bodySmall),
+      ],
+    );
   }
 
   @override
@@ -68,7 +88,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: widget.onBack ?? () => context.go('/chats'),
         ),
-        title: Text(summaryAsync.value?.displayTitle ?? '...'),
+        title: _buildTitle(context, summaryAsync.value),
       ),
       body: summaryAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -76,9 +96,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         data: (conversation) {
           if (conversation == null) {
             return const Center(child: Text('Чат не найден'));
-          }
-          if (conversation.kind != ConversationKind.direct) {
-            return const Center(child: Text('Групповые чаты появятся позже'));
           }
           final messages = ref.watch(messagesStreamProvider(widget.conversationId));
 

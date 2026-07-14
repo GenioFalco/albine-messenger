@@ -9,6 +9,7 @@ import '../../data/providers.dart';
 import '../../data/session_controller.dart';
 import '../../domain/models.dart';
 import 'new_chat_sheet.dart';
+import 'new_group_sheet.dart';
 
 /// The chat list. Used two ways:
 /// - Narrow/mobile: a full [Scaffold] screen; tapping a conversation pushes
@@ -38,6 +39,16 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
 
   Future<void> _startNewChat() async {
     final conversationId = await showNewChatSheet(context);
+    if (conversationId == null || !mounted) return;
+    if (widget.embedded) {
+      ref.read(selectedConversationIdProvider.notifier).state = conversationId;
+    } else {
+      context.push('/chats/$conversationId');
+    }
+  }
+
+  Future<void> _startNewGroup() async {
+    final conversationId = await showNewGroupSheet(context);
     if (conversationId == null || !mounted) return;
     if (widget.embedded) {
       ref.read(selectedConversationIdProvider.notifier).state = conversationId;
@@ -151,6 +162,11 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                   ),
                 ),
                 IconButton(
+                  icon: const Icon(Icons.group_add_outlined),
+                  tooltip: 'Новая группа',
+                  onPressed: _startNewGroup,
+                ),
+                IconButton(
                   icon: const Icon(Icons.edit_outlined),
                   tooltip: 'Новый чат',
                   onPressed: _startNewChat,
@@ -189,6 +205,11 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
         ),
         title: const Text('Albine'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.group_add_outlined),
+            tooltip: 'Новая группа',
+            onPressed: _startNewGroup,
+          ),
           IconButton(
             icon: const Icon(Icons.edit_outlined),
             tooltip: 'Новый чат',
