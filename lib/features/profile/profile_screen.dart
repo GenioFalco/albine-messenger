@@ -49,6 +49,41 @@ class ProfileScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 20),
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(
+              'Безопасность',
+              style: TextStyle(color: colors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
+          AppCard(
+            onTap: () => _showRotateKeyDialog(context, ref),
+            child: Row(
+              children: [
+                Icon(Icons.security_outlined, color: colors.textSecondary, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Сбросить ключ шифрования',
+                        style: TextStyle(fontWeight: FontWeight.w600, color: colors.textPrimary),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Если подозреваешь, что устройство могли взломать — старая переписка '
+                        'останется читаемой на этом устройстве, но украденный ключ перестанет '
+                        'работать для новых сообщений.',
+                        style: TextStyle(color: colors.textSecondary, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
           AppCard(
             onTap: () => ref.read(sessionControllerProvider.notifier).signOut(),
             child: Row(
@@ -64,6 +99,94 @@ class ProfileScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+
+  void _showRotateKeyDialog(BuildContext context, WidgetRef ref) {
+    showDialog<void>(context: context, builder: (context) => const _RotateKeyDialog());
+  }
+}
+
+class _RotateKeyDialog extends ConsumerStatefulWidget {
+  const _RotateKeyDialog();
+
+  @override
+  ConsumerState<_RotateKeyDialog> createState() => _RotateKeyDialogState();
+}
+
+class _RotateKeyDialogState extends ConsumerState<_RotateKeyDialog> {
+  final _passwordController = TextEditingController();
+  bool _loading = false;
+  String? _error;
+  bool _done = false;
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _confirm() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final error = await ref
+        .read(sessionControllerProvider.notifier)
+        .rotateIdentityKey(_passwordController.text);
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _error = error;
+      _done = error == null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<AlbineColors>()!;
+
+    if (_done) {
+      return AlertDialog(
+        backgroundColor: colors.background,
+        title: const Text('Готово'),
+        content: const Text('Новый ключ создан и опубликован. Старые сообщения по-прежнему читаются.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Закрыть')),
+        ],
+      );
+    }
+
+    return AlertDialog(
+      backgroundColor: colors.background,
+      title: const Text('Сбросить ключ шифрования?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Подтверди паролем от аккаунта. Старая переписка останется читаемой только на этом '
+            'устройстве; украденная копия ключа перестанет работать для новых сообщений.',
+            style: TextStyle(color: colors.textSecondary),
+          ),
+          const SizedBox(height: 16),
+          LabeledField(
+            label: 'Пароль',
+            controller: _passwordController,
+            obscureText: true,
+            autofocus: true,
+            onSubmitted: (_) => _confirm(),
+          ),
+          if (_error != null) ...[const SizedBox(height: 12), AppErrorText(_error!)],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _loading ? null : () => Navigator.of(context).pop(),
+          child: const Text('Отмена'),
+        ),
+        TextButton(onPressed: _loading ? null : _confirm, child: const Text('Сбросить')),
+      ],
     );
   }
 }

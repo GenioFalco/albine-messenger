@@ -63,6 +63,28 @@ class SignalLocalStore implements SignalProtocolStore {
 
   Future<int> unconsumedPreKeyCount() async => (await _readMap(_preKeysKey)).length;
 
+  /// Full reset — used by "rotate my key" (see
+  /// `SessionController.rotateIdentityKey`): a suspected-compromised device
+  /// may have had its *session* states copied too, not just the identity
+  /// key, so this clears everything (identity, registration id, signed/
+  /// one-time prekeys, and every contact's session) rather than just the
+  /// identity, forcing a completely fresh bootstrap and fresh X3DH
+  /// handshakes with everyone going forward.
+  Future<void> resetAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final key in [
+      _identityKey,
+      _regIdKey,
+      _signedPreKeysKey,
+      _currentSignedPreKeyIdKey,
+      _preKeysKey,
+      _preKeyCounterKey,
+      _sessionsKey,
+    ]) {
+      await prefs.remove(key);
+    }
+  }
+
   /// Reserves [count] fresh, never-reused one-time-prekey ids for this
   /// account (a monotonic counter, independent of how many earlier ids have
   /// since been consumed+removed) so newly generated prekeys can never

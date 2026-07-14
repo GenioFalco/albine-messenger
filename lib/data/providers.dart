@@ -68,6 +68,7 @@ final chatRepositoryProvider = Provider<ChatRepository?>((ref) {
     myKeyPair: keyPair,
     myUserId: client.auth.currentUser!.id,
     signal: signal,
+    keyStorage: ref.watch(keyStorageProvider),
   );
 });
 

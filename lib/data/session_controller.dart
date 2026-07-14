@@ -125,6 +125,26 @@ class SessionController extends Notifier<SessionState> {
 
     _wrappedKeyCache = await _storage.loadWrappedPrivateKey(user.id);
 
+    // Skip the password entirely if this browser already unlocked once
+    // since the last explicit sign-out — see KeyStorage's doc comment for
+    // the trade-off this accepts (device/browser compromise can read this
+    // without the password).
+    final unlockedSecretBytes = await _storage.loadUnlockedSecretKey(user.id);
+    if (unlockedSecretBytes != null) {
+      final keyPair = _crypto.restoreIdentityKeyPair(
+        secretKeyBytes: unlockedSecretBytes,
+        expectedPublicKey: profile.identityPubkey,
+      );
+      if (keyPair != null) {
+        state = SessionState(status: SessionStatus.ready, profile: profile, identityKeyPair: keyPair);
+        unawaited(_bootstrapSignal(user.id, unlockedSecretBytes));
+        return;
+      }
+      // Stale/mismatched (e.g. key rotated elsewhere) — fall through to the
+      // normal password flow below.
+      await _storage.clearUnlockedSecretKey(user.id);
+    }
+
     // If we just signed in this session (password still cached in memory),
     // unlock silently instead of asking for the same password a second
     // time. Deliberately stay in `loading` — not `needsPassword` — while
@@ -177,6 +197,7 @@ class SessionController extends Notifier<SessionState> {
           // never backed up at all. Keep the server copy in sync on every
           // successful unlock, not just first-ever login.
           _ensureBackupUploaded(user.id, wrapped);
+          unawaited(_storage.saveUnlockedSecretKey(user.id, secretBytes));
           unawaited(_bootstrapSignal(user.id, secretBytes));
           return null;
         }
@@ -206,6 +227,7 @@ class SessionController extends Notifier<SessionState> {
         await _storage.saveWrappedPrivateKey(user.id, backup);
         _wrappedKeyCache = backup;
         state = state._copyWith(status: SessionStatus.ready, identityKeyPair: keyPair);
+        unawaited(_storage.saveUnlockedSecretKey(user.id, secretBytes));
         unawaited(_bootstrapSignal(user.id, secretBytes));
         return null;
       }
@@ -243,6 +265,7 @@ class SessionController extends Notifier<SessionState> {
       ),
       identityKeyPair: keyPair,
     );
+    unawaited(_storage.saveUnlockedSecretKey(user.id, freshSecretBytes));
     unawaited(_bootstrapSignal(user.id, freshSecretBytes));
     return null;
   }
@@ -256,7 +279,10 @@ class SessionController extends Notifier<SessionState> {
   /// fail with "wrong password" for reasons the user can't fix.
   Future<String?> resetLocalKeyAndUnlock(String password) async {
     final user = _client.auth.currentUser;
-    if (user != null) await _storage.clear(user.id);
+    if (user != null) {
+      await _storage.clear(user.id);
+      await _storage.clearUnlockedSecretKey(user.id);
+    }
     _wrappedKeyCache = null;
     return unlock(password, trustServerBackup: false);
   }
@@ -293,11 +319,85 @@ class SessionController extends Notifier<SessionState> {
     _pendingPassword = null;
 
     state = SessionState(status: SessionStatus.ready, profile: profile, identityKeyPair: keyPair);
+    unawaited(_storage.saveUnlockedSecretKey(user.id, secretBytes));
     unawaited(_bootstrapSignal(user.id, secretBytes));
     return null;
   }
 
+  /// "I think I've been hacked" — generates a brand new identity key,
+  /// publishes its public half so *all new* messages/sessions use it, and
+  /// resets every Signal session from scratch (a suspected-compromised
+  /// device may have had session state copied too, not just the identity
+  /// key). The retired key is kept locally only (not re-uploaded to the
+  /// server backup) purely so old messages stay readable on *this* device —
+  /// see `ChatRepository`'s retired-key decrypt fallback and
+  /// `KeyStorage.addRetiredSecretKey`'s doc comment for the deliberate scope
+  /// limit (not server-recoverable on a different new device).
+  ///
+  /// Re-requires the password even though the session is already unlocked —
+  /// this is a destructive, security-sensitive action worth the extra check.
+  Future<String?> rotateIdentityKey(String password) async {
+    final user = _client.auth.currentUser;
+    final profile = state.profile;
+    final currentKeyPair = state.identityKeyPair;
+    if (user == null || profile == null || currentKeyPair == null) return 'Внутренняя ошибка сессии';
+
+    final wrapped = await _storage.loadWrappedPrivateKey(user.id);
+    if (wrapped == null) return 'Внутренняя ошибка сессии';
+    Uint8List currentSecretBytes;
+    try {
+      currentSecretBytes = _crypto.unwrapSecret(wrapped: wrapped, passphrase: password);
+    } catch (_) {
+      return 'Неверный пароль';
+    }
+    final verifyPair = _crypto.restoreIdentityKeyPair(
+      secretKeyBytes: currentSecretBytes,
+      expectedPublicKey: profile.identityPubkey,
+    );
+    if (verifyPair == null) return 'Неверный пароль';
+    verifyPair.dispose();
+
+    await _storage.addRetiredSecretKey(user.id, currentSecretBytes);
+
+    final newKeyPair = _crypto.generateIdentityKeyPair();
+    try {
+      await _profiles.updateIdentityPubkey(userId: user.id, identityPubkey: newKeyPair.publicKey);
+    } catch (e) {
+      newKeyPair.dispose();
+      return 'Не удалось обновить ключ. ${humanizeError(e)}';
+    }
+
+    final newSecretBytes = newKeyPair.secretKey.extractBytes();
+    final newWrapped = _crypto.wrapSecret(secret: newSecretBytes, passphrase: password);
+    await _storage.saveWrappedPrivateKey(user.id, newWrapped);
+    await _storage.saveUnlockedSecretKey(user.id, newSecretBytes);
+    await _keyBackup.upsertBackup(user.id, newWrapped);
+    _wrappedKeyCache = newWrapped;
+
+    await SignalLocalStore(user.id).resetAll();
+    await _bootstrapSignal(user.id, newSecretBytes);
+
+    currentKeyPair.dispose();
+    state = state._copyWith(
+      profile: AppProfile(
+        id: profile.id,
+        username: profile.username,
+        displayName: profile.displayName,
+        identityPubkey: newKeyPair.publicKey,
+        avatarUrl: profile.avatarUrl,
+      ),
+      identityKeyPair: newKeyPair,
+    );
+    return null;
+  }
+
+  /// The only thing that forces the password again on this device — clears
+  /// the session-unlock cache from [KeyStorage.saveUnlockedSecretKey].
+  /// Doesn't lose anything: the server-side wrapped backup is untouched, so
+  /// the next login just needs the password once to restore everything.
   Future<void> signOut() async {
+    final user = _client.auth.currentUser;
+    if (user != null) await _storage.clearUnlockedSecretKey(user.id);
     state.identityKeyPair?.dispose();
     _pendingPassword = null;
     await _client.auth.signOut();

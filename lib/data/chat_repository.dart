@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/models.dart';
 import '../services/crypto/crypto_models.dart';
 import '../services/crypto/crypto_service.dart';
+import '../services/crypto/key_storage.dart';
 import '../services/signal/signal_service.dart';
 
 /// All chat data access + the encrypt/decrypt boundary. UI code never touches
@@ -26,17 +27,31 @@ class ChatRepository {
     required IdentityKeyPair myKeyPair,
     required String myUserId,
     required SignalService signal,
+    required KeyStorage keyStorage,
   }) : _client = client,
        _crypto = crypto,
        _myKeyPair = myKeyPair,
        _myUserId = myUserId,
-       _signal = signal;
+       _signal = signal,
+       _keyStorage = keyStorage;
 
   final SupabaseClient _client;
   final CryptoService _crypto;
   final IdentityKeyPair _myKeyPair;
   final String _myUserId;
   final SignalService _signal;
+  final KeyStorage _keyStorage;
+
+  /// Identity keys retired by a past "rotate my key" action (see
+  /// `SessionController.rotateIdentityKey`), tried in order when the
+  /// *current* key fails to decrypt a `protocol: 'crypto_box'` message —
+  /// this is what keeps old messages readable after a rotation. Loaded once
+  /// and cached; see [_ensureRetiredKeysLoaded].
+  List<Uint8List>? _retiredKeysCache;
+
+  Future<void> _ensureRetiredKeysLoaded() async {
+    _retiredKeysCache ??= await _keyStorage.loadRetiredSecretKeys(_myUserId);
+  }
 
   /// Plaintext of messages *this device* sent via the forward-secret Signal
   /// path, keyed by message id. Needed because — unlike the legacy
@@ -93,6 +108,7 @@ class ChatRepository {
   /// [decryptText] can read it back synchronously afterwards.
   Future<void> _prewarmSignalDecryption(Iterable<ChatMessage> messages) async {
     await _ensureEchoLoaded();
+    await _ensureRetiredKeysLoaded();
     for (final m in messages) {
       if (m.protocol != 'signal') continue;
       if (_sentSignalEcho.containsKey(m.id) || _signalDecryptCache.containsKey(m.id)) continue;
@@ -116,6 +132,12 @@ class ChatRepository {
         final plaintext = await _signal.decryptFromContact(m.senderId, m.ciphertext, messageType);
         _signalDecryptCache[m.id] = utf8.decode(plaintext);
       } catch (_) {
+        // Self-heal instead of leaving the conversation permanently broken:
+        // drop the local session so the *next* message to/from this contact
+        // triggers a fresh X3DH handshake. This message itself stays
+        // unrecoverable (correct — that's forward secrecy), but the
+        // conversation recovers going forward with no manual action.
+        await _signal.resetSessionWith(m.senderId).catchError((_) {});
         _signalDecryptCache[m.id] = '🔒 Не удалось расшифровать';
       }
     }
@@ -126,6 +148,14 @@ class ChatRepository {
   /// only async step, same "prewarm before the sync UI read" shape as
   /// [_signalDecryptCache].
   final Map<String, SecureKey> _groupKeyCache = {};
+
+  /// Conversations whose group key failed to fetch/unseal on the most
+  /// recent attempt — lets [decryptText] show a permanent failure instead
+  /// of the "Расшифровка…" placeholder forever. Cleared automatically as
+  /// soon as a later [_prewarmGroupKey] call succeeds (it's a "last attempt
+  /// failed" marker, not a permanent give-up — a future retry can still fix
+  /// itself, e.g. once the RLS/network hiccup that caused it clears).
+  final Set<String> _groupKeyFailed = {};
 
   /// Fetches + unseals this device's `wrapped_group_key` for [conversationId]
   /// if not already cached. Returns null if there is no such key yet — most
@@ -151,9 +181,10 @@ class ChatRepository {
 
   Future<void> _prewarmGroupKey(String conversationId) async {
     try {
-      await _tryGroupKeyFor(conversationId);
+      final key = await _tryGroupKeyFor(conversationId);
+      if (key != null) _groupKeyFailed.remove(conversationId);
     } catch (_) {
-      // Leave uncached; decryptText falls back to its placeholder text.
+      _groupKeyFailed.add(conversationId);
     }
   }
 
@@ -417,7 +448,9 @@ class ChatRepository {
   String decryptText(ChatMessage message, {required ConversationKind kind, AppProfile? peer}) {
     if (kind == ConversationKind.group) {
       final groupKey = _groupKeyCache[message.conversationId];
-      if (groupKey == null) return '🔒 Расшифровка…';
+      if (groupKey == null) {
+        return _groupKeyFailed.contains(message.conversationId) ? '🔒 Не удалось расшифровать' : '🔒 Расшифровка…';
+      }
       try {
         final plaintext = _crypto.decryptGroupMessage(
           groupKey: groupKey,
@@ -440,14 +473,32 @@ class ChatRepository {
       return _signalDecryptCache[message.id] ?? '🔒 Расшифровка…';
     }
 
+    final payload = EncryptedPayload(ciphertext: message.ciphertext, nonce: message.nonce ?? Uint8List(0));
     try {
       final plaintext = _crypto.decryptDirectMessage(
         mySecretKey: _myKeyPair.secretKey,
         theirPublicKey: peer.identityPubkey,
-        payload: EncryptedPayload(ciphertext: message.ciphertext, nonce: message.nonce ?? Uint8List(0)),
+        payload: payload,
       );
       return utf8.decode(plaintext);
     } catch (_) {
+      // Current key doesn't open it — try keys retired by a past "rotate my
+      // key" action, oldest messages may predate the most recent rotation.
+      for (final retiredBytes in _retiredKeysCache ?? const <Uint8List>[]) {
+        final retiredKey = _crypto.wrapSecureKey(retiredBytes);
+        try {
+          final plaintext = _crypto.decryptDirectMessage(
+            mySecretKey: retiredKey,
+            theirPublicKey: peer.identityPubkey,
+            payload: payload,
+          );
+          return utf8.decode(plaintext);
+        } catch (_) {
+          continue;
+        } finally {
+          retiredKey.dispose();
+        }
+      }
       return '🔒 Не удалось расшифровать';
     }
   }

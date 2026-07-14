@@ -30,6 +30,12 @@ abstract class CryptoService {
   /// Reverses [wrapSecret]. Throws [SodiumException] if [passphrase] is wrong.
   Uint8List unwrapSecret({required WrappedSecret wrapped, required String passphrase});
 
+  /// Wraps raw secret key bytes as a `SecureKey` without the public-key
+  /// match check `restoreIdentityKeyPair` does — used for a *retired*
+  /// identity key (see `KeyStorage.loadRetiredSecretKeys`), which by
+  /// definition no longer matches the current `profiles.identity_pubkey`.
+  SecureKey wrapSecureKey(Uint8List secretKeyBytes);
+
   /// 1:1 messages: crypto_box (X25519 + XSalsa20-Poly1305) — libsodium's
   /// standard authenticated-encryption box for exactly this two-party case.
   EncryptedPayload encryptDirectMessage({
@@ -153,6 +159,9 @@ class SodiumCryptoService implements CryptoService {
       derivedKey.dispose();
     }
   }
+
+  @override
+  SecureKey wrapSecureKey(Uint8List secretKeyBytes) => _s.secureCopy(secretKeyBytes);
 
   @override
   EncryptedPayload encryptDirectMessage({

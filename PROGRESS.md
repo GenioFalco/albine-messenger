@@ -51,3 +51,25 @@ Session-level working log. Updated before major stages and at least every 30–4
 1. Apply `supabase/migrations/0004_group_conversations.sql` (plus the still-outstanding `0002`/`0003` from M1.5) to the live Supabase project.
 2. Manual E2E: create a group with 2+ members, confirm all members see it with the right name/participant count, exchange messages both directions, confirm existing 1:1 chats still work unaffected by the `fetchConversations()`/`decryptText()` changes.
 3. Once verified, flip both ROADMAP.md M1.5 and M2 headings to fully done.
+
+---
+
+## 2026-07-14 (later) — M1.5-fix: concurrency regression, session persistence, key rotation
+
+**Status:** Live testing (finally in a real browser, migrations already applied by the user) surfaced a serious regression from M1.5: signing out and back in broke decryption for **both** parties in a conversation. Root-caused via a dedicated investigation, then fixed along with two features the user asked for during the resulting design discussion. Passes `flutter analyze` clean; rebuilt (`flutter build web`) and the local preview server restarted on the fresh build.
+
+**Root cause:** `SignalLocalStore` stores every contact's Double Ratchet session in one shared JSON blob per user, read-modify-written with no locking. `watchConversations()`'s and `watchMessages()`'s independent async prewarm pipelines (`chat_repository.dart`) could both touch that blob concurrently, especially right after a sign-in burst — a lost update desyncs the ratchet, and because message keys are deleted immediately after use (forward secrecy working as designed), the desync is unrecoverable and cascades to the other party's device too.
+
+**Changed files:**
+- `lib/services/signal/signal_service.dart` — every operation touching a contact's session (or the account's own prekey bootstrap) now goes through a `static` keyed lock (`_withLock`/`_locks`) so concurrent callers queue instead of racing. `static` deliberately, not per-instance — `session_controller.dart`'s `_bootstrapSignal` constructs its own separate `SignalService` from the one `signalServiceProvider` hands `ChatRepository`, and both must serialize against the same lock. New `resetSessionWith(contactId)` — deletes a contact's local session so the next message triggers a fresh handshake (self-healing after a decrypt failure) — and `ensureBootstrapped` is now awaited (not fire-and-forget) inside `rotateIdentityKey`.
+- `lib/data/chat_repository.dart` — `_prewarmSignalDecryption`'s catch block calls `resetSessionWith` before caching the failure. New `_groupKeyFailed` set gives group decryption a real failure state instead of "Расшифровка…" forever. New retired-key decrypt fallback for `protocol: 'crypto_box'` (tries `KeyStorage.loadRetiredSecretKeys` in order after the current key fails) — needed so history stays readable after a key rotation; constructor now takes `KeyStorage`.
+- `lib/services/crypto/key_storage.dart` — `saveUnlockedSecretKey`/`loadUnlockedSecretKey`/`clearUnlockedSecretKey` (the session-persistence cache) and `addRetiredSecretKey`/`loadRetiredSecretKeys` (capped at 10, local-only, for the rotation feature).
+- `lib/services/crypto/crypto_service.dart` — `wrapSecureKey()`, wraps raw bytes as a `SecureKey` without `restoreIdentityKeyPair`'s public-key match check (retired keys don't match the *current* public key by definition).
+- `lib/services/signal/signal_local_store.dart` — `resetAll()`, full wipe of one user's Signal state (identity, prekeys, all sessions) for the rotation feature.
+- `lib/data/session_controller.dart` — `_refresh()` checks the unlocked-key cache before ever asking for a password; `unlock()`/`setUpProfile()` populate it on every success path; `signOut()` clears it (the only thing that re-triggers the password prompt, and it doesn't lose history — the server backup is untouched). New `rotateIdentityKey(password)`: re-verifies the password, archives the current key locally, generates+publishes a new one, re-backs it up server-side, fully resets Signal state, and re-bootstraps.
+- `lib/features/profile/profile_screen.dart` — new "Безопасность" section: explanatory copy + a "Сбросить ключ шифрования" action opening a password-confirm dialog (`_RotateKeyDialog`) that calls `rotateIdentityKey`.
+- `ROADMAP.md` — M1.5 section extended with points 3–5 (concurrency fix, session persistence, key rotation) and the reasoning behind each trade-off.
+
+**Next steps:**
+1. Manual E2E in a real browser (already the plan going forward — this environment's browser tooling can't drive canvaskit): two accounts messaging continuously while alternating sign-out/in and reloads on one side, confirming no desync; a rotate-key action confirming old messages stay readable and new messages work for both parties afterward.
+2. If clean, this closes out the M1.5 regression — no further known gaps before M3.
