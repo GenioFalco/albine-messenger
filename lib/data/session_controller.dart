@@ -96,6 +96,14 @@ class SessionController extends Notifier<SessionState> {
     }
   }
 
+  /// Fire-and-forget: never blocks reaching [SessionStatus.ready], and a
+  /// failure here (e.g. a transient network error) just means the next
+  /// successful unlock tries again — there's always a good local copy of
+  /// the key regardless of whether the server-side backup is current.
+  void _ensureBackupUploaded(String userId, WrappedSecret wrapped) {
+    unawaited(_keyBackup.upsertBackup(userId, wrapped).catchError((_) {}));
+  }
+
   /// Called right after a successful sign-in/sign-up so later steps in this
   /// same session don't have to ask for the password again.
   void cachePassword(String password) => _pendingPassword = password;
@@ -163,6 +171,12 @@ class SessionController extends Notifier<SessionState> {
           // through to the server-side backup below.
         } else {
           state = state._copyWith(status: SessionStatus.ready, identityKeyPair: keyPair);
+          // Accounts created before M1.5 (or that have only ever taken this
+          // fast path) never hit the fresh-keygen branch below, which is
+          // the only place that used to upload a backup — so their key was
+          // never backed up at all. Keep the server copy in sync on every
+          // successful unlock, not just first-ever login.
+          _ensureBackupUploaded(user.id, wrapped);
           unawaited(_bootstrapSignal(user.id, secretBytes));
           return null;
         }
