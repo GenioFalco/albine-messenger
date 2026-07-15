@@ -50576,32 +50576,44 @@ return A.m(o.iH(0,n),$async$F9)
 case 3:case 1:return A.u(q,r)}})
 return A.v($async$F9,r)},
 yq(a){return this.az3(a)},
-az3(a){var s=0,r=A.w(t.YG),q,p=this,o,n,m,l,k,j,i,h,g
-var $async$yq=A.x(function(b,c){if(b===1)return A.t(c,r)
-for(;;)switch(s){case 0:g=a.f
-if(g==null){q=null
+az3(a){var s=0,r=A.w(t.YG),q,p=2,o=[],n=this,m,l,k,j,i,h,g,f,e,d
+var $async$yq=A.x(function(b,c){if(b===1){o.push(c)
+s=p}for(;;)switch(s){case 0:e=a.f
+if(e==null){q=null
 s=1
-break}o=p.a
-n=a.a
+break}k=n.a
+j=a.a
 s=3
-return A.m(o.dR("signed_prekeys").mC().fD("user_id",n).rr(),$async$yq)
-case 3:m=c
-if(m==null){q=null
+return A.m(k.dR("signed_prekeys").mC().fD("user_id",j).rr(),$async$yq)
+case 3:i=c
+if(i==null){q=null
 s=1
-break}l=t.z
-s=4
-return A.m(o.Q3("claim_one_time_prekey",A.a6(["target_user_id",n],t.N,l),l),$async$yq)
-case 4:k=c
-j=t.j.b(k)&&J.ik(k)?t.a.a(J.vW(k)):null
-o=A.e9(m.h(0,"key_id"))
-n=B.as.aG(A.aw(m.h(0,"public_key")))
-l=B.as.aG(A.aw(m.h(0,"signature")))
-i=j==null
-h=i?null:A.e9(j.h(0,"key_id"))
-q=new A.V0(g,o,n,l,h,i?null:B.as.aG(A.aw(j.h(0,"public_key"))))
+break}m=null
+p=5
+h=t.z
+s=8
+return A.m(k.Q3("claim_one_time_prekey",A.a6(["target_user_id",j],t.N,h),h),$async$yq)
+case 8:l=c
+if(t.j.b(l)&&J.ik(l))m=t.a.a(J.vW(l))
+p=2
+s=7
+break
+case 5:p=4
+d=o.pop()
+m=null
+s=7
+break
+case 4:s=2
+break
+case 7:k=A.e9(i.h(0,"key_id"))
+j=B.as.aG(A.aw(i.h(0,"public_key")))
+h=B.as.aG(A.aw(i.h(0,"signature")))
+f=m==null?null:A.e9(m.h(0,"key_id"))
+q=new A.V0(e,k,j,h,f,m==null?null:B.as.aG(A.aw(m.h(0,"public_key"))))
 s=1
 break
-case 1:return A.u(q,r)}})
+case 1:return A.u(q,r)
+case 2:return A.t(o.at(-1),r)}})
 return A.v($async$yq,r)}}
 A.j3.prototype={}
 A.PG.prototype={
