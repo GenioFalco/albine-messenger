@@ -79,10 +79,18 @@ class SignalDirectoryRepository {
     final signedRow = await _client.from('signed_prekeys').select().eq('user_id', peer.id).maybeSingle();
     if (signedRow == null) return null;
 
-    final claimed = await _client.rpc('claim_one_time_prekey', params: {'target_user_id': peer.id});
+    // A one-time prekey is an optional X3DH ingredient (stronger forward
+    // secrecy for the first message, not required to establish a session at
+    // all) — if claiming one fails for any reason, degrade to "none
+    // available" instead of aborting the whole handshake over it.
     Map<String, dynamic>? otp;
-    if (claimed is List && claimed.isNotEmpty) {
-      otp = claimed.first as Map<String, dynamic>;
+    try {
+      final claimed = await _client.rpc('claim_one_time_prekey', params: {'target_user_id': peer.id});
+      if (claimed is List && claimed.isNotEmpty) {
+        otp = claimed.first as Map<String, dynamic>;
+      }
+    } catch (_) {
+      otp = null;
     }
 
     return SignalBundleRow(

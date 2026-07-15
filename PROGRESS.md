@@ -84,8 +84,13 @@ Session-level working log. Updated before major stages and at least every 30–4
 - `lib/data/session_controller.dart` — `rotateIdentityKey` now re-seals every group key this device holds from the old public key to the new one before the old keypair is disposed (`_reSealGroupKeys`, best-effort per group so one bad row doesn't abort the rotation).
 - `lib/features/chat/chat_screen.dart` — `_send()` now catches errors, restores the typed text, and shows a `SnackBar` via `humanizeError` instead of failing silently.
 
-**Open issue:** a second, distinct `SodiumException: A low-level libsodium operation has failed` was reported afterward from a *direct* (1:1) conversation — confirmed not the group-reseal bug (that path only runs for `sendGroupMessage`). Cause not yet identified; need the full browser-console stack trace (not just the exception message) to localize which of `_signal.encryptForContact`/`_crypto.encryptDirectMessage` is throwing.
+**Open issue (found and fixed):** a second, distinct `SodiumException` was reported from a *direct* (1:1) conversation — confirmed not the group-reseal bug (that path only runs for `sendGroupMessage`). The user found the real cause themselves in the DevTools console: `claim_one_time_prekey` (`supabase/migrations/0003_signal_prekeys.sql`) was throwing `PostgrestException: column reference "key_id" is ambiguous` (Postgres 42702) on every call — `RETURNS TABLE(key_id int, ...)` implicitly declares `key_id` as an OUT parameter scoped to the whole function body, and the DELETE's unqualified `key_id` in its WHERE clause was ambiguous against that. This has likely been silently breaking *every* fresh X3DH handshake since 0003 was applied — plausibly the real cause of much of the "не удалось расшифровать" noise seen throughout M1.5 testing, not just today's two crash reports.
+
+**Fix:**
+- `supabase/migrations/0005_fix_claim_one_time_prekey.sql` (new) — re-`create or replace`s the function with the DELETE's `key_id` qualified to the table alias. **Needs to be applied to the live Supabase project (SQL Editor) — not done yet.**
+- `lib/data/signal_directory_repository.dart` — `fetchBundle()`'s prekey-claim RPC call is now wrapped in try/catch, degrading to "no one-time prekey" (still a valid, if slightly weaker, X3DH session) instead of aborting the whole handshake — defense in depth so a future transient RPC failure can't take down sending the same way.
 
 **Next steps:**
-1. Get the full stack trace for the direct-chat `SodiumException` and root-cause it.
-2. Re-run the M1.5 manual E2E checklist above once both issues are resolved.
+1. Apply `0005_fix_claim_one_time_prekey.sql` to the live Supabase project.
+2. Re-test sending in both the direct chat and the group chat that failed.
+3. Re-run the full M1.5 manual E2E checklist above now that this root cause is fixed.
