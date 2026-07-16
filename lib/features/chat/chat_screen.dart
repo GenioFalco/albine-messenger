@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -52,6 +53,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<ChatMessage?>? _pinnedFuture;
 
+  /// Multi-select mode, entered via a message's "Выбрать" action.
+  bool _selecting = false;
+  final Set<String> _selectedIds = {};
+
   @override
   void dispose() {
     _textController.dispose();
@@ -59,9 +64,91 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     super.dispose();
   }
 
+  void _enterSelection(String messageId) {
+    setState(() {
+      _selecting = true;
+      _selectedIds
+        ..clear()
+        ..add(messageId);
+    });
+  }
+
+  void _toggleSelected(String messageId) {
+    setState(() {
+      if (!_selectedIds.remove(messageId)) _selectedIds.add(messageId);
+    });
+  }
+
+  void _exitSelection() {
+    setState(() {
+      _selecting = false;
+      _selectedIds.clear();
+    });
+  }
+
+  Future<void> _deleteSelected() async {
+    final chat = ref.read(chatRepositoryProvider);
+    if (chat == null) return;
+    final ids = List<String>.of(_selectedIds);
+    _exitSelection();
+    for (final id in ids) {
+      await chat.deleteMessage(id);
+    }
+  }
+
+  Future<void> _forwardSelected(
+    List<ChatMessage> currentItems,
+    ConversationSummary conversation,
+  ) async {
+    final chat = ref.read(chatRepositoryProvider);
+    if (chat == null) return;
+    final selected =
+        currentItems
+            .where((m) => _selectedIds.contains(m.id) && m.deletedAt == null)
+            .toList()
+          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    _exitSelection();
+    if (selected.isEmpty) return;
+
+    final target = await showBlurredModalSheet<ConversationSummary>(
+      context: context,
+      builder: (context) => const _ForwardPickerSheet(),
+    );
+    if (target == null || !mounted) return;
+    try {
+      for (final m in selected) {
+        final text = chat.decryptText(
+          m,
+          kind: conversation.kind,
+          peer: conversation.peer,
+        );
+        await chat.forwardMessage(
+          text: text,
+          originalSenderId: m.senderId,
+          targetConversationId: target.id,
+          targetKind: target.kind,
+          targetPeer: target.peer,
+        );
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Переслано в «${target.displayTitle}»')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось переслать: ${humanizeError(e)}')),
+        );
+      }
+    }
+  }
+
   void _refreshPinned() {
     final chat = ref.read(chatRepositoryProvider);
-    setState(() => _pinnedFuture = chat?.fetchPinnedMessage(widget.conversationId));
+    setState(
+      () => _pinnedFuture = chat?.fetchPinnedMessage(widget.conversationId),
+    );
   }
 
   void _startReply(ChatMessage message) {
@@ -91,7 +178,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final text = _textController.text.trim();
     final chat = ref.read(chatRepositoryProvider);
     if (text.isEmpty || chat == null) return;
-    if (conversation.kind == ConversationKind.direct && conversation.peer == null) return;
+    if (conversation.kind == ConversationKind.direct &&
+        conversation.peer == null)
+      return;
 
     final editing = _editing;
     final replyTo = _replyingTo;
@@ -114,23 +203,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           editsMessageId: editing?.id,
         );
       }
-      if (mounted) setState(() { _replyingTo = null; _editing = null; });
+      if (mounted)
+        setState(() {
+          _replyingTo = null;
+          _editing = null;
+        });
     } catch (e) {
       // Without this, a thrown error (e.g. a group whose key this device
       // can no longer open) silently ate the typed text and left the user
       // with no feedback at all — restore it and surface what happened.
       if (mounted) {
         _textController.text = text;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Не удалось отправить: ${humanizeError(e)}')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось отправить: ${humanizeError(e)}')),
+        );
       }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
   }
 
-  String _senderName(String userId, ConversationSummary conversation, String? myId) {
+  String _senderName(
+    String userId,
+    ConversationSummary conversation,
+    String? myId,
+  ) {
     if (userId == myId) return 'Ты';
     if (conversation.peer?.id == userId) return conversation.peer!.displayName;
     for (final m in conversation.members ?? const []) {
@@ -153,7 +250,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final entries = <_ChatListEntry>[];
     DateTime? lastDay;
     for (final m in items) {
-      final day = DateTime(m.createdAt.year, m.createdAt.month, m.createdAt.day);
+      final day = DateTime(
+        m.createdAt.year,
+        m.createdAt.month,
+        m.createdAt.day,
+      );
       if (lastDay == null || day != lastDay) {
         entries.add(_ChatListEntry.separator(day));
         lastDay = day;
@@ -172,83 +273,98 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final colors = Theme.of(context).extension<AlbineColors>()!;
     final chat = ref.read(chatRepositoryProvider);
     final isPinned = message.pinnedAt != null;
-    await showModalBottomSheet<void>(
+    await showBlurredModalSheet<void>(
       context: context,
-      backgroundColor: colors.background,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(colors.radius))),
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            ListTile(
-              leading: Icon(Icons.reply_outlined, color: colors.textPrimary),
-              title: const Text('Ответить'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _startReply(message);
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.copy_outlined, color: colors.textPrimary),
-              title: const Text('Скопировать'),
-              onTap: () async {
-                Navigator.of(sheetContext).pop();
-                await Clipboard.setData(ClipboardData(text: decryptedText));
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Скопировано')));
-                }
-              },
-            ),
-            if (mine)
-              ListTile(
-                leading: Icon(Icons.edit_outlined, color: colors.textPrimary),
-                title: const Text('Редактировать'),
+      builder: (sheetContext) => Container(
+        margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        decoration: BoxDecoration(
+          color: colors.background.withValues(alpha: 0.94),
+          borderRadius: BorderRadius.circular(colors.radius),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ActionSheetTile(
+                icon: CupertinoIcons.reply,
+                label: 'Ответить',
                 onTap: () {
                   Navigator.of(sheetContext).pop();
-                  _startEdit(message, decryptedText);
+                  _startReply(message);
                 },
               ),
-            ListTile(
-              leading: Icon(
-                isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                color: colors.textPrimary,
-              ),
-              title: Text(isPinned ? 'Открепить' : 'Закрепить'),
-              onTap: () async {
-                Navigator.of(sheetContext).pop();
-                await chat?.toggleMessagePin(message.id, !isPinned);
-                _refreshPinned();
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.forward_outlined, color: colors.textPrimary),
-              title: const Text('Переслать'),
-              onTap: () async {
-                Navigator.of(sheetContext).pop();
-                await _forwardMessage(message, decryptedText);
-              },
-            ),
-            if (mine)
-              ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
-                title: const Text('Удалить', style: TextStyle(color: Colors.red)),
+              ActionSheetTile(
+                icon: CupertinoIcons.doc_on_doc,
+                label: 'Скопировать',
                 onTap: () async {
                   Navigator.of(sheetContext).pop();
-                  await chat?.deleteMessage(message.id);
+                  await Clipboard.setData(ClipboardData(text: decryptedText));
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Скопировано')),
+                    );
+                  }
                 },
               ),
-            const SizedBox(height: 8),
-          ],
+              if (mine)
+                ActionSheetTile(
+                  icon: CupertinoIcons.pencil,
+                  label: 'Редактировать',
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _startEdit(message, decryptedText);
+                  },
+                ),
+              ActionSheetTile(
+                icon: isPinned ? CupertinoIcons.pin_slash : CupertinoIcons.pin,
+                label: isPinned ? 'Открепить' : 'Закрепить',
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  await chat?.toggleMessagePin(message.id, !isPinned);
+                  _refreshPinned();
+                },
+              ),
+              ActionSheetTile(
+                icon: CupertinoIcons.arrowshape_turn_up_right,
+                label: 'Переслать',
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  await _forwardMessage(message, decryptedText);
+                },
+              ),
+              if (mine)
+                ActionSheetTile(
+                  icon: CupertinoIcons.delete,
+                  label: 'Удалить',
+                  destructive: true,
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await chat?.deleteMessage(message.id);
+                  },
+                ),
+              Divider(height: 1, color: colors.border),
+              ActionSheetTile(
+                icon: CupertinoIcons.checkmark_circle,
+                label: 'Выбрать',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _enterSelection(message.id);
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Future<void> _forwardMessage(ChatMessage message, String decryptedText) async {
-    final target = await showModalBottomSheet<ConversationSummary>(
+  Future<void> _forwardMessage(
+    ChatMessage message,
+    String decryptedText,
+  ) async {
+    final target = await showBlurredModalSheet<ConversationSummary>(
       context: context,
-      isScrollControlled: true,
       builder: (context) => const _ForwardPickerSheet(),
     );
     if (target == null || !mounted) return;
@@ -263,15 +379,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         targetPeer: target.peer,
       );
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Переслано в «${target.displayTitle}»')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Переслано в «${target.displayTitle}»')),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Не удалось переслать: ${humanizeError(e)}')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось переслать: ${humanizeError(e)}')),
+        );
       }
     }
   }
@@ -294,19 +410,49 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final summaryAsync = ref.watch(conversationSummaryProvider(widget.conversationId));
+    final summaryAsync = ref.watch(
+      conversationSummaryProvider(widget.conversationId),
+    );
     final myId = ref.watch(sessionControllerProvider).profile?.id;
     final chat = ref.watch(chatRepositoryProvider);
     final colors = Theme.of(context).extension<AlbineColors>()!;
 
+    final currentMessages =
+        ref.watch(messagesStreamProvider(widget.conversationId)).value ??
+        const <ChatMessage>[];
+
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: widget.onBack ?? () => context.go('/chats'),
-        ),
-        title: _buildTitle(context, summaryAsync.value),
-      ),
+      appBar: _selecting
+          ? AppBar(
+              leading: IconButton(
+                icon: const Icon(CupertinoIcons.xmark),
+                onPressed: _exitSelection,
+              ),
+              title: Text('${_selectedIds.length} выбрано'),
+              actions: [
+                IconButton(
+                  icon: const Icon(CupertinoIcons.arrowshape_turn_up_right),
+                  onPressed:
+                      (_selectedIds.isEmpty || summaryAsync.value == null)
+                      ? null
+                      : () => _forwardSelected(
+                          currentMessages,
+                          summaryAsync.value!,
+                        ),
+                ),
+                IconButton(
+                  icon: const Icon(CupertinoIcons.delete),
+                  onPressed: _selectedIds.isEmpty ? null : _deleteSelected,
+                ),
+              ],
+            )
+          : AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: widget.onBack ?? () => context.go('/chats'),
+              ),
+              title: _buildTitle(context, summaryAsync.value),
+            ),
       body: summaryAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: AppErrorText(humanizeError(e))),
@@ -315,7 +461,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             return const Center(child: Text('Чат не найден'));
           }
           _pinnedFuture ??= chat?.fetchPinnedMessage(widget.conversationId);
-          final messages = ref.watch(messagesStreamProvider(widget.conversationId));
+          final messages = ref.watch(
+            messagesStreamProvider(widget.conversationId),
+          );
 
           return Column(
             children: [
@@ -325,24 +473,44 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   builder: (context, snapshot) {
                     final pinned = snapshot.data;
                     if (pinned == null) return const SizedBox.shrink();
-                    final text = chat?.decryptText(pinned, kind: conversation.kind, peer: conversation.peer) ?? '...';
+                    final text =
+                        chat?.decryptText(
+                          pinned,
+                          kind: conversation.kind,
+                          peer: conversation.peer,
+                        ) ??
+                        '...';
                     return Container(
                       color: colors.surface,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       child: Row(
                         children: [
-                          Icon(Icons.push_pin, size: 16, color: colors.textSecondary),
+                          Icon(
+                            Icons.push_pin,
+                            size: 16,
+                            color: colors.textSecondary,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               text,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: colors.textPrimary, fontSize: 13),
+                              style: TextStyle(
+                                color: colors.textPrimary,
+                                fontSize: 13,
+                              ),
                             ),
                           ),
                           IconButton(
-                            icon: Icon(Icons.close, size: 16, color: colors.textSecondary),
+                            icon: Icon(
+                              Icons.close,
+                              size: 16,
+                              color: colors.textSecondary,
+                            ),
                             onPressed: () async {
                               await chat?.toggleMessagePin(pinned.id, false);
                               _refreshPinned();
@@ -355,19 +523,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
               Expanded(
                 child: messages.when(
-                  loading: () => const Center(child: CircularProgressIndicator()),
-                  error: (e, _) => Center(child: AppErrorText(humanizeError(e))),
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (e, _) =>
+                      Center(child: AppErrorText(humanizeError(e))),
                   data: (rawItems) {
-                    final items = chat?.applyEditEvents(rawItems, kind: conversation.kind, peer: conversation.peer) ?? rawItems;
+                    final items =
+                        chat?.applyEditEvents(
+                          rawItems,
+                          kind: conversation.kind,
+                          peer: conversation.peer,
+                        ) ??
+                        rawItems;
                     final entries = _buildListEntries(items);
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (_scrollController.hasClients) {
-                        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+                        _scrollController.jumpTo(
+                          _scrollController.position.maxScrollExtent,
+                        );
                       }
                     });
                     return ListView.builder(
                       controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       itemCount: entries.length,
                       itemBuilder: (context, index) {
                         final entry = entries[index];
@@ -376,14 +557,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           return Center(
                             child: Container(
                               margin: const EdgeInsets.symmetric(vertical: 8),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
                                 color: colors.surface,
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Text(
-                                formatDateSeparator(separatorDay, DateTime.now()),
-                                style: TextStyle(fontSize: 12, color: colors.textSecondary),
+                                formatDateSeparator(
+                                  separatorDay,
+                                  DateTime.now(),
+                                ),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: colors.textSecondary,
+                                ),
                               ),
                             ),
                           );
@@ -394,7 +584,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
                         if (message.deletedAt != null) {
                           return Align(
-                            alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+                            alignment: mine
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
                             child: Padding(
                               padding: const EdgeInsets.symmetric(vertical: 4),
                               child: Row(
@@ -411,7 +603,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   const SizedBox(width: 6),
                                   Text(
                                     formatMessageTime(message.createdAt),
-                                    style: TextStyle(color: colors.textSecondary, fontSize: 11),
+                                    style: TextStyle(
+                                      color: colors.textSecondary,
+                                      fontSize: 11,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -420,27 +615,49 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         }
 
                         final text =
-                            chat?.decryptText(message, kind: conversation.kind, peer: conversation.peer) ??
+                            chat?.decryptText(
+                              message,
+                              kind: conversation.kind,
+                              peer: conversation.peer,
+                            ) ??
                             '...';
                         final replyTarget = _findById(items, message.replyToId);
                         final replyText = replyTarget == null
                             ? null
-                            : chat?.decryptText(replyTarget, kind: conversation.kind, peer: conversation.peer);
+                            : chat?.decryptText(
+                                replyTarget,
+                                kind: conversation.kind,
+                                peer: conversation.peer,
+                              );
+                        final selected = _selectedIds.contains(message.id);
 
-                        return GestureDetector(
-                          onLongPress: () => _showMessageActions(
-                            message: message,
-                            decryptedText: text,
-                            conversation: conversation,
-                            mine: mine,
-                          ),
+                        final bubble = GestureDetector(
+                          onTap: _selecting
+                              ? () => _toggleSelected(message.id)
+                              : null,
+                          onLongPress: _selecting
+                              ? null
+                              : () => _showMessageActions(
+                                  message: message,
+                                  decryptedText: text,
+                                  conversation: conversation,
+                                  mine: mine,
+                                ),
                           child: Align(
-                            alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+                            alignment: mine
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
                             child: ConstrainedBox(
-                              constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                              constraints: BoxConstraints(
+                                maxWidth:
+                                    MediaQuery.of(context).size.width * 0.75,
+                              ),
                               child: Container(
                                 margin: const EdgeInsets.symmetric(vertical: 4),
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
                                 decoration: BoxDecoration(
                                   color: mine ? colors.accent : colors.surface,
                                   borderRadius: BorderRadius.circular(16),
@@ -451,36 +668,57 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   children: [
                                     if (message.forwardedFromSenderId != null)
                                       Padding(
-                                        padding: const EdgeInsets.only(bottom: 4),
+                                        padding: const EdgeInsets.only(
+                                          bottom: 4,
+                                        ),
                                         child: Text(
                                           'Переслано от '
                                           '${_senderName(message.forwardedFromSenderId!, conversation, myId)}',
                                           style: TextStyle(
                                             fontSize: 12,
                                             fontStyle: FontStyle.italic,
-                                            color: mine ? colors.textOnAccent : colors.textSecondary,
+                                            color: mine
+                                                ? colors.textOnAccent
+                                                : colors.textSecondary,
                                           ),
                                         ),
                                       ),
                                     if (replyText != null)
                                       Container(
-                                        margin: const EdgeInsets.only(bottom: 6),
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                        margin: const EdgeInsets.only(
+                                          bottom: 6,
+                                        ),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 6,
+                                        ),
                                         decoration: BoxDecoration(
-                                          color: (mine ? colors.textOnAccent : colors.textPrimary)
-                                              .withValues(alpha: 0.08),
-                                          borderRadius: BorderRadius.circular(8),
+                                          color:
+                                              (mine
+                                                      ? colors.textOnAccent
+                                                      : colors.textPrimary)
+                                                  .withValues(alpha: 0.08),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
                                         ),
                                         child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             Text(
-                                              _senderName(replyTarget!.senderId, conversation, myId),
+                                              _senderName(
+                                                replyTarget!.senderId,
+                                                conversation,
+                                                myId,
+                                              ),
                                               style: TextStyle(
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.w600,
-                                                color: mine ? colors.textOnAccent : colors.textPrimary,
+                                                color: mine
+                                                    ? colors.textOnAccent
+                                                    : colors.textPrimary,
                                               ),
                                             ),
                                             Text(
@@ -489,7 +727,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                               overflow: TextOverflow.ellipsis,
                                               style: TextStyle(
                                                 fontSize: 12,
-                                                color: mine ? colors.textOnAccent : colors.textSecondary,
+                                                color: mine
+                                                    ? colors.textOnAccent
+                                                    : colors.textSecondary,
                                               ),
                                             ),
                                           ],
@@ -497,7 +737,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       ),
                                     Text(
                                       text,
-                                      style: TextStyle(color: mine ? colors.textOnAccent : colors.textPrimary),
+                                      style: TextStyle(
+                                        color: mine
+                                            ? colors.textOnAccent
+                                            : colors.textPrimary,
+                                      ),
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
@@ -505,7 +749,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       style: TextStyle(
                                         fontSize: 10,
                                         color: mine
-                                            ? colors.textOnAccent.withValues(alpha: 0.75)
+                                            ? colors.textOnAccent.withValues(
+                                                alpha: 0.75,
+                                              )
                                             : colors.textSecondary,
                                       ),
                                     ),
@@ -514,6 +760,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               ),
                             ),
                           ),
+                        );
+
+                        if (!_selecting) return bubble;
+                        return Row(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                              ),
+                              child: Icon(
+                                selected
+                                    ? CupertinoIcons.checkmark_alt_circle_fill
+                                    : CupertinoIcons.circle,
+                                size: 22,
+                                color: selected
+                                    ? colors.accent
+                                    : colors.textSecondary,
+                              ),
+                            ),
+                            Expanded(child: bubble),
+                          ],
                         );
                       },
                     );
@@ -528,7 +795,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     if (_replyingTo != null || _editing != null)
                       Container(
                         margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
                           color: colors.surface,
                           borderRadius: BorderRadius.circular(colors.radius),
@@ -536,7 +806,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         child: Row(
                           children: [
                             Icon(
-                              _editing != null ? Icons.edit_outlined : Icons.reply_outlined,
+                              _editing != null
+                                  ? Icons.edit_outlined
+                                  : Icons.reply_outlined,
                               size: 18,
                               color: colors.textSecondary,
                             ),
@@ -549,11 +821,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                           '${chat?.decryptText(_replyingTo!, kind: conversation.kind, peer: conversation.peer) ?? ''}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(color: colors.textSecondary, fontSize: 13),
+                                style: TextStyle(
+                                  color: colors.textSecondary,
+                                  fontSize: 13,
+                                ),
                               ),
                             ),
                             IconButton(
-                              icon: Icon(Icons.close, size: 16, color: colors.textSecondary),
+                              icon: Icon(
+                                Icons.close,
+                                size: 16,
+                                color: colors.textSecondary,
+                              ),
                               onPressed: _cancelComposerExtras,
                             ),
                           ],
@@ -572,9 +851,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 hintText: 'Сообщение...',
                                 filled: true,
                                 fillColor: colors.surface,
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(colors.radius),
+                                  borderRadius: BorderRadius.circular(
+                                    colors.radius,
+                                  ),
                                   borderSide: BorderSide.none,
                                 ),
                               ),
@@ -592,9 +876,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       color: colors.textOnAccent,
                                     ),
                                   )
-                                : Icon(_editing != null ? Icons.check : Icons.send),
-                            style: IconButton.styleFrom(backgroundColor: colors.accent),
-                            onPressed: _sending ? null : () => _send(conversation),
+                                : Icon(
+                                    _editing != null ? Icons.check : Icons.send,
+                                  ),
+                            style: IconButton.styleFrom(
+                              backgroundColor: colors.accent,
+                            ),
+                            onPressed: _sending
+                                ? null
+                                : () => _send(conversation),
                           ),
                         ],
                       ),
@@ -620,40 +910,58 @@ class _ForwardPickerSheet extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = Theme.of(context).extension<AlbineColors>()!;
     final conversations = ref.watch(conversationsStreamProvider);
-    return SafeArea(
-      child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.6,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text('Переслать в...', style: Theme.of(context).textTheme.titleMedium),
-            ),
-            Expanded(
-              child: conversations.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(child: AppErrorText(humanizeError(e))),
-                data: (items) => ListView.builder(
-                  itemCount: items.length,
-                  itemBuilder: (context, index) {
-                    final convo = items[index];
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: colors.surfaceStrong,
-                        child: Text(
-                          convo.displayTitle.isNotEmpty ? convo.displayTitle[0].toUpperCase() : '?',
-                          style: TextStyle(color: colors.textPrimary, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      title: Text(convo.displayTitle),
-                      onTap: () => Navigator.of(context).pop(convo),
-                    );
-                  },
+    return Container(
+      margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      decoration: BoxDecoration(
+        color: colors.background.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(colors.radius),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.6,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Переслать в...',
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
               ),
-            ),
-          ],
+              Expanded(
+                child: conversations.when(
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (e, _) =>
+                      Center(child: AppErrorText(humanizeError(e))),
+                  data: (items) => ListView.builder(
+                    itemCount: items.length,
+                    itemBuilder: (context, index) {
+                      final convo = items[index];
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: colors.surfaceStrong,
+                          child: Text(
+                            convo.displayTitle.isNotEmpty
+                                ? convo.displayTitle[0].toUpperCase()
+                                : '?',
+                            style: TextStyle(
+                              color: colors.textPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        title: Text(convo.displayTitle),
+                        onTap: () => Navigator.of(context).pop(convo),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

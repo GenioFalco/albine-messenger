@@ -119,3 +119,14 @@ Session-level working log. Updated before major stages and at least every 30–4
 2. Manual E2E in a real browser: swipe/long-press chat-list actions, reply/edit/pin/forward/delete in a direct chat and a group chat, confirm a hidden chat reappears on a new incoming message, confirm an edited message's preview updates in the conversation list.
 
 **Same-day follow-up:** added per-message HH:mm timestamps and day separators ("Сегодня"/"Вчера"/DD.MM.YYYY) in the chat screen, matching VK/WhatsApp-style grouping — `lib/core/format.dart` (`formatMessageTime`, `formatDateSeparator`), `lib/features/chat/chat_screen.dart` (`_ChatListEntry`/`_buildListEntries` interleaves separators between message bubbles; each bubble now shows its time bottom-right). `flutter analyze` clean, `flutter build web` succeeds.
+
+**Bug found in that follow-up, fixed same day:** the per-message time `Text` was wrapped in an unconstrained `Align`, which expands to fill all available width unless bounded — every bubble stretched to the full 75%-of-screen max-width constraint regardless of actual text length, and the time ended up stranded at the far right of the resulting empty space. Replaced with a plain `Text` (no `Align`) so bubbles hug their content again and the time sits naturally under it.
+
+**Follow-up 2 — sheet styling + multi-select:** user asked for the action sheets to look like WhatsApp/Telegram/iOS (blurred background, matching icon pack) and for a "Выбрать" (multi-select) message mode.
+- `lib/shared/widgets/app_widgets.dart` — new `showBlurredModalSheet()` (full-screen `BackdropFilter` blur behind a transparent-backed modal route, vs. `showModalBottomSheet`'s flat scrim) and `ActionSheetTile` (shared icon+label row, optional destructive/red styling) — both reused across the message action sheet, conversation tile menu, new-conversation picker, and forward picker.
+- Icons switched from Material to `CupertinoIcons` throughout these menus/sheets (reply, copy, pencil, pin/pin_slash, arrowshape_turn_up_right, delete, checkmark_circle, bell/bell_slash, person/person_2) to match the iOS-style pack WhatsApp/Telegram use — `cupertino_icons` was already a dependency, just unused until now.
+- `lib/features/chat/chat_screen.dart` — new "Выбрать" tile enters multi-select mode: tapping a bubble toggles a leading checkmark-circle instead of opening the action sheet, the `AppBar` swaps to a "N выбрано" toolbar with forward-selected/delete-selected actions and an X to exit. Forwarding selected messages reuses `forwardMessage` per item (decrypted locally, re-encrypted for the target); deleting reuses `deleteMessage` per item (RLS silently no-ops on anything not mine, so a mixed selection only removes my own).
+
+**Next steps:**
+1. Apply `0005`/`0006` migrations to the live Supabase project (still outstanding).
+2. Manual E2E: blurred sheets render correctly, multi-select forward/delete across a direct and a group chat, icons render (no missing-glyph boxes).

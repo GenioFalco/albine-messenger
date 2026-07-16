@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
@@ -9,6 +10,7 @@ import '../../core/theme/albine_theme.dart';
 import '../../data/providers.dart';
 import '../../data/session_controller.dart';
 import '../../domain/models.dart';
+import '../../shared/widgets/app_widgets.dart';
 import 'new_chat_sheet.dart';
 import 'new_group_sheet.dart';
 
@@ -25,7 +27,8 @@ class ConversationsScreen extends ConsumerStatefulWidget {
   final bool embedded;
 
   @override
-  ConsumerState<ConversationsScreen> createState() => _ConversationsScreenState();
+  ConsumerState<ConversationsScreen> createState() =>
+      _ConversationsScreenState();
 }
 
 class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
@@ -68,35 +71,37 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
 
   Future<void> _showNewConversationMenu() async {
     final colors = Theme.of(context).extension<AlbineColors>()!;
-    await showModalBottomSheet<void>(
+    await showBlurredModalSheet<void>(
       context: context,
-      backgroundColor: colors.background,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(colors.radius)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            ListTile(
-              leading: Icon(Icons.person_outline, color: colors.textPrimary),
-              title: const Text('Личное сообщение'),
-              onTap: () {
-                Navigator.of(context).pop();
-                _startNewChat();
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.group_outlined, color: colors.textPrimary),
-              title: const Text('Групповой чат'),
-              onTap: () {
-                Navigator.of(context).pop();
-                _startNewGroup();
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
+      builder: (sheetContext) => Container(
+        margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        decoration: BoxDecoration(
+          color: colors.background.withValues(alpha: 0.94),
+          borderRadius: BorderRadius.circular(colors.radius),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ActionSheetTile(
+                icon: CupertinoIcons.person,
+                label: 'Личное сообщение',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _startNewChat();
+                },
+              ),
+              ActionSheetTile(
+                icon: CupertinoIcons.person_2,
+                label: 'Групповой чат',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _startNewGroup();
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -125,8 +130,14 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
           'Чат «${convo.displayTitle}» пропадёт из списка. Если придёт новое сообщение, он появится снова.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Отмена')),
-          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Удалить')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Удалить'),
+          ),
         ],
       ),
     );
@@ -138,49 +149,46 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
 
   Future<void> _showTileMenu(ConversationSummary convo) async {
     final colors = Theme.of(context).extension<AlbineColors>()!;
-    await showModalBottomSheet<void>(
+    await showBlurredModalSheet<void>(
       context: context,
-      backgroundColor: colors.background,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(colors.radius)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            ListTile(
-              leading: Icon(
-                convo.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                color: colors.textPrimary,
+      builder: (sheetContext) => Container(
+        margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        decoration: BoxDecoration(
+          color: colors.background.withValues(alpha: 0.94),
+          borderRadius: BorderRadius.circular(colors.radius),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ActionSheetTile(
+                icon: convo.isPinned ? CupertinoIcons.pin_slash : CupertinoIcons.pin,
+                label: convo.isPinned ? 'Открепить' : 'Закрепить',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _togglePinned(convo);
+                },
               ),
-              title: Text(convo.isPinned ? 'Открепить' : 'Закрепить'),
-              onTap: () {
-                Navigator.of(context).pop();
-                _togglePinned(convo);
-              },
-            ),
-            ListTile(
-              leading: Icon(
-                convo.muted ? Icons.notifications_outlined : Icons.notifications_off_outlined,
-                color: colors.textPrimary,
+              ActionSheetTile(
+                icon: convo.muted ? CupertinoIcons.bell : CupertinoIcons.bell_slash,
+                label: convo.muted ? 'Включить звук' : 'Отключить звук',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _toggleMuted(convo);
+                },
               ),
-              title: Text(convo.muted ? 'Включить звук' : 'Отключить звук'),
-              onTap: () {
-                Navigator.of(context).pop();
-                _toggleMuted(convo);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.red),
-              title: const Text('Удалить', style: TextStyle(color: Colors.red)),
-              onTap: () {
-                Navigator.of(context).pop();
-                _deleteConversation(convo);
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
+              ActionSheetTile(
+                icon: CupertinoIcons.delete,
+                label: 'Удалить',
+                destructive: true,
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _deleteConversation(convo);
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -189,7 +197,9 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
   @override
   Widget build(BuildContext context) {
     final conversations = ref.watch(conversationsStreamProvider);
-    final selectedId = widget.embedded ? ref.watch(selectedConversationIdProvider) : null;
+    final selectedId = widget.embedded
+        ? ref.watch(selectedConversationIdProvider)
+        : null;
     final colors = Theme.of(context).extension<AlbineColors>()!;
 
     final searchField = Padding(
@@ -232,7 +242,9 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
       data: (items) {
         final filtered = _filter.isEmpty
             ? items
-            : items.where((c) => c.displayTitle.toLowerCase().contains(_filter)).toList();
+            : items
+                  .where((c) => c.displayTitle.toLowerCase().contains(_filter))
+                  .toList();
 
         if (filtered.isEmpty) {
           return Center(
@@ -281,9 +293,9 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                 Expanded(
                   child: Text(
                     'Чаты',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 IconButton(
@@ -318,7 +330,10 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                 (profile?.displayName.isNotEmpty ?? false)
                     ? profile!.displayName[0].toUpperCase()
                     : '?',
-                style: TextStyle(color: colors.textPrimary, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: colors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -332,7 +347,12 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
           ),
         ],
       ),
-      body: Column(children: [searchField, Expanded(child: list)]),
+      body: Column(
+        children: [
+          searchField,
+          Expanded(child: list),
+        ],
+      ),
     );
   }
 }
@@ -373,7 +393,7 @@ class _ConversationTile extends StatelessWidget {
               onPressed: (_) => onPin(),
               backgroundColor: colors.accent,
               foregroundColor: colors.textOnAccent,
-              icon: convo.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+              icon: convo.isPinned ? CupertinoIcons.pin_slash : CupertinoIcons.pin,
               label: convo.isPinned ? 'Открепить' : 'Закрепить',
               borderRadius: BorderRadius.circular(colors.radius),
             ),
@@ -387,7 +407,7 @@ class _ConversationTile extends StatelessWidget {
               onPressed: (_) => onMute(),
               backgroundColor: Colors.orange,
               foregroundColor: Colors.white,
-              icon: convo.muted ? Icons.notifications_outlined : Icons.notifications_off_outlined,
+              icon: convo.muted ? CupertinoIcons.bell : CupertinoIcons.bell_slash,
               label: convo.muted ? 'Вкл. звук' : 'Без звука',
               borderRadius: BorderRadius.circular(colors.radius),
             ),
@@ -395,7 +415,7 @@ class _ConversationTile extends StatelessWidget {
               onPressed: (_) => onDelete(),
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
-              icon: Icons.delete_outline,
+              icon: CupertinoIcons.delete,
               label: 'Удалить',
               borderRadius: BorderRadius.circular(colors.radius),
             ),
@@ -416,7 +436,9 @@ class _ConversationTile extends StatelessWidget {
                     radius: 26,
                     backgroundColor: colors.surfaceStrong,
                     child: Text(
-                      convo.displayTitle.isNotEmpty ? convo.displayTitle[0].toUpperCase() : '?',
+                      convo.displayTitle.isNotEmpty
+                          ? convo.displayTitle[0].toUpperCase()
+                          : '?',
                       style: TextStyle(
                         color: colors.textPrimary,
                         fontWeight: FontWeight.w600,
@@ -432,7 +454,11 @@ class _ConversationTile extends StatelessWidget {
                         Row(
                           children: [
                             if (convo.isPinned) ...[
-                              Icon(Icons.push_pin, size: 14, color: colors.textSecondary),
+                              Icon(
+                                CupertinoIcons.pin_fill,
+                                size: 14,
+                                color: colors.textSecondary,
+                              ),
                               const SizedBox(width: 4),
                             ],
                             Expanded(
@@ -450,7 +476,10 @@ class _ConversationTile extends StatelessWidget {
                             const SizedBox(width: 8),
                             Text(
                               formatChatTimestamp(convo.updatedAt, now),
-                              style: TextStyle(fontSize: 12, color: colors.textSecondary),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: colors.textSecondary,
+                              ),
                             ),
                           ],
                         ),
@@ -462,12 +491,19 @@ class _ConversationTile extends StatelessWidget {
                                 convo.previewText ?? 'Нет сообщений',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(color: colors.textSecondary, fontSize: 14),
+                                style: TextStyle(
+                                  color: colors.textSecondary,
+                                  fontSize: 14,
+                                ),
                               ),
                             ),
                             if (convo.muted) ...[
                               const SizedBox(width: 4),
-                              Icon(Icons.notifications_off_outlined, size: 15, color: colors.textSecondary),
+                              Icon(
+                                CupertinoIcons.bell_slash,
+                                size: 15,
+                                color: colors.textSecondary,
+                              ),
                             ],
                           ],
                         ),
@@ -505,7 +541,10 @@ class _ProfileButton extends ConsumerWidget {
                   (profile?.displayName.isNotEmpty ?? false)
                       ? profile!.displayName[0].toUpperCase()
                       : '?',
-                  style: TextStyle(color: colors.textPrimary, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -517,19 +556,29 @@ class _ProfileButton extends ConsumerWidget {
                       profile?.displayName ?? '...',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontWeight: FontWeight.w600, color: colors.textPrimary),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: colors.textPrimary,
+                      ),
                     ),
                     if (profile != null)
                       Text(
                         '@${profile.username}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: colors.textSecondary, fontSize: 13),
+                        style: TextStyle(
+                          color: colors.textSecondary,
+                          fontSize: 13,
+                        ),
                       ),
                   ],
                 ),
               ),
-              Icon(Icons.settings_outlined, color: colors.textSecondary, size: 20),
+              Icon(
+                Icons.settings_outlined,
+                color: colors.textSecondary,
+                size: 20,
+              ),
             ],
           ),
         ),

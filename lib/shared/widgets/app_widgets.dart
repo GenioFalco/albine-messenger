@@ -1,6 +1,40 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme/albine_theme.dart';
+
+/// A bottom sheet whose entire background (not just the area behind the
+/// sheet card) is blurred, matching the iOS/Telegram/WhatsApp context-menu
+/// look — `showModalBottomSheet` alone only dims with a flat scrim.
+/// [builder] should return just the sheet's own content (a rounded card);
+/// this wraps it with the full-screen blur and bottom alignment.
+Future<T?> showBlurredModalSheet<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: 0.2),
+    builder: (sheetContext) {
+      return ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: SizedBox(
+            width: double.infinity,
+            height: MediaQuery.of(sheetContext).size.height,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: builder(sheetContext),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
 
 /// Plain background every screen sits on.
 class AppBackground extends StatelessWidget {
@@ -17,7 +51,11 @@ class AppBackground extends StatelessWidget {
 
 /// A plain card used to visually group form fields.
 class FormPanel extends StatelessWidget {
-  const FormPanel({super.key, required this.child, this.padding = const EdgeInsets.all(24)});
+  const FormPanel({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(24),
+  });
 
   final Widget child;
   final EdgeInsetsGeometry padding;
@@ -76,7 +114,12 @@ class AppCard extends StatelessWidget {
 
 /// A normal, solid, full-width rounded-rectangle button.
 class AppButton extends StatelessWidget {
-  const AppButton({super.key, required this.label, required this.onPressed, this.loading = false});
+  const AppButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.loading = false,
+  });
 
   final String label;
   final VoidCallback? onPressed;
@@ -96,14 +139,19 @@ class AppButton extends StatelessWidget {
           foregroundColor: colors.textOnAccent,
           disabledBackgroundColor: colors.accent.withValues(alpha: 0.4),
           disabledForegroundColor: colors.textOnAccent.withValues(alpha: 0.7),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(colors.radius)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(colors.radius),
+          ),
           elevation: 0,
         ),
         child: loading
             ? SizedBox(
                 width: 20,
                 height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2.2, color: colors.textOnAccent),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  color: colors.textOnAccent,
+                ),
               )
             : Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
       ),
@@ -113,7 +161,12 @@ class AppButton extends StatelessWidget {
 
 /// A small round icon button on a light circular background.
 class AppIconButton extends StatelessWidget {
-  const AppIconButton({super.key, required this.icon, required this.onPressed, this.size = 40});
+  const AppIconButton({
+    super.key,
+    required this.icon,
+    required this.onPressed,
+    this.size = 40,
+  });
 
   final IconData icon;
   final VoidCallback? onPressed;
@@ -174,7 +227,10 @@ class _LabeledFieldState extends State<LabeledField> {
       children: [
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 6),
-          child: Text(widget.label, style: TextStyle(color: colors.textSecondary, fontSize: 13)),
+          child: Text(
+            widget.label,
+            style: TextStyle(color: colors.textSecondary, fontSize: 13),
+          ),
         ),
         TextField(
           controller: widget.controller,
@@ -190,7 +246,9 @@ class _LabeledFieldState extends State<LabeledField> {
             suffixIcon: widget.obscureText
                 ? IconButton(
                     icon: Icon(
-                      _obscured ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                      _obscured
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
                       color: colors.textSecondary,
                     ),
                     onPressed: () => setState(() => _obscured = !_obscured),
@@ -229,13 +287,49 @@ class AppErrorText extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.only(top: 2),
-          child: Icon(Icons.info_outline, size: 16, color: colors.textSecondary),
+          child: Icon(
+            Icons.info_outline,
+            size: 16,
+            color: colors.textSecondary,
+          ),
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: Text(message, style: TextStyle(color: colors.textPrimary, height: 1.3)),
+          child: Text(
+            message,
+            style: TextStyle(color: colors.textPrimary, height: 1.3),
+          ),
         ),
       ],
+    );
+  }
+}
+
+/// A single row in an iOS-style blurred action sheet (see
+/// [showBlurredModalSheet]) — icon + label, optionally red for a
+/// destructive action. Used by the message and conversation action sheets.
+class ActionSheetTile extends StatelessWidget {
+  const ActionSheetTile({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<AlbineColors>()!;
+    final color = destructive ? Colors.red : colors.textPrimary;
+    return ListTile(
+      leading: Icon(icon, color: color),
+      title: Text(label, style: TextStyle(color: color)),
+      onTap: onTap,
     );
   }
 }
@@ -253,7 +347,10 @@ class AppLink extends StatelessWidget {
     final colors = Theme.of(context).extension<AlbineColors>()!;
     return InkWell(
       onTap: onTap,
-      child: Text(text, style: TextStyle(color: colors.accent, fontWeight: FontWeight.w500)),
+      child: Text(
+        text,
+        style: TextStyle(color: colors.accent, fontWeight: FontWeight.w500),
+      ),
     );
   }
 }
