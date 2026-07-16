@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -186,6 +187,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               onTap: () {
                 Navigator.of(sheetContext).pop();
                 _startReply(message);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.copy_outlined, color: colors.textPrimary),
+              title: const Text('Скопировать'),
+              onTap: () async {
+                Navigator.of(sheetContext).pop();
+                await Clipboard.setData(ClipboardData(text: decryptedText));
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Скопировано')));
+                }
               },
             ),
             if (mine)
@@ -488,16 +500,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       style: TextStyle(color: mine ? colors.textOnAccent : colors.textPrimary),
                                     ),
                                     const SizedBox(height: 2),
-                                    Align(
-                                      alignment: Alignment.centerRight,
-                                      child: Text(
-                                        formatMessageTime(message.createdAt),
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: mine
-                                              ? colors.textOnAccent.withValues(alpha: 0.75)
-                                              : colors.textSecondary,
-                                        ),
+                                    Text(
+                                      formatMessageTime(message.createdAt),
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: mine
+                                            ? colors.textOnAccent.withValues(alpha: 0.75)
+                                            : colors.textSecondary,
                                       ),
                                     ),
                                   ],
