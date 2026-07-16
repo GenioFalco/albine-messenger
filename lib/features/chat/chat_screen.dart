@@ -42,6 +42,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _scrollController = ScrollController();
   bool _sending = false;
 
+  /// Which icon the empty-input trailing button shows — toggled by tapping
+  /// it, same as WhatsApp/Telegram. Neither voice nor video recording is
+  /// wired up yet (M3 is on hold); this is just the visual affordance.
+  bool _voiceMode = true;
+
   /// Set while composing a reply — mutually exclusive with [_editing].
   ChatMessage? _replyingTo;
 
@@ -247,10 +252,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   /// Interleaves a day-separator entry before the first message of each
   /// calendar day — [items] is already in ascending `createdAt` order.
+  /// Deleted messages are dropped entirely rather than shown as a tombstone
+  /// (matching Telegram: a deleted message just isn't there any more).
   List<_ChatListEntry> _buildListEntries(List<ChatMessage> items) {
     final entries = <_ChatListEntry>[];
     DateTime? lastDay;
     for (final m in items) {
+      if (m.deletedAt != null) continue;
       final day = DateTime(
         m.createdAt.year,
         m.createdAt.month,
@@ -276,86 +284,123 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final isPinned = message.pinnedAt != null;
     await showBlurredModalSheet<void>(
       context: context,
-      builder: (sheetContext) => Container(
-        margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-        decoration: BoxDecoration(
-          color: colors.background.withValues(alpha: 0.94),
-          borderRadius: BorderRadius.circular(colors.radius),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ActionSheetTile(
-                icon: CupertinoIcons.reply,
-                label: 'Ответить',
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _startReply(message);
-                },
+      builder: (sheetContext) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          // A small copy of the message itself above the actions, same as
+          // Telegram's long-press menu — reuses the same bubble colors/shape
+          // as the real one so it reads as "this is the message you picked."
+          Container(
+            margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+            constraints: const BoxConstraints(maxWidth: 260),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: mine
+                  ? colors.accent
+                  : colors.background.withValues(alpha: 0.94),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Text(
+              decryptedText,
+              maxLines: 6,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: mine ? colors.textOnAccent : colors.textPrimary,
               ),
-              ActionSheetTile(
-                icon: CupertinoIcons.doc_on_doc,
-                label: 'Скопировать',
-                onTap: () async {
-                  Navigator.of(sheetContext).pop();
-                  await Clipboard.setData(ClipboardData(text: decryptedText));
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Скопировано')),
-                    );
-                  }
-                },
-              ),
-              if (mine)
-                ActionSheetTile(
-                  icon: CupertinoIcons.pencil,
-                  label: 'Редактировать',
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _startEdit(message, decryptedText);
-                  },
-                ),
-              ActionSheetTile(
-                icon: isPinned ? CupertinoIcons.pin_slash : CupertinoIcons.pin,
-                label: isPinned ? 'Открепить' : 'Закрепить',
-                onTap: () async {
-                  Navigator.of(sheetContext).pop();
-                  await chat?.toggleMessagePin(message.id, !isPinned);
-                  _refreshPinned();
-                },
-              ),
-              ActionSheetTile(
-                icon: CupertinoIcons.arrowshape_turn_up_right,
-                label: 'Переслать',
-                onTap: () async {
-                  Navigator.of(sheetContext).pop();
-                  await _forwardMessage(message, decryptedText);
-                },
-              ),
-              if (mine)
-                ActionSheetTile(
-                  icon: CupertinoIcons.delete,
-                  label: 'Удалить',
-                  destructive: true,
-                  onTap: () async {
-                    Navigator.of(sheetContext).pop();
-                    await chat?.deleteMessage(message.id);
-                  },
-                ),
-              Divider(height: 1, color: colors.border),
-              ActionSheetTile(
-                icon: CupertinoIcons.checkmark_circle,
-                label: 'Выбрать',
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _enterSelection(message.id);
-                },
-              ),
-            ],
+            ),
           ),
-        ),
+          Container(
+            margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+            decoration: BoxDecoration(
+              color: colors.background.withValues(alpha: 0.94),
+              borderRadius: BorderRadius.circular(colors.radius),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ActionSheetTile(
+                    icon: CupertinoIcons.reply,
+                    label: 'Ответить',
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _startReply(message);
+                    },
+                  ),
+                  ActionSheetTile(
+                    icon: CupertinoIcons.doc_on_doc,
+                    label: 'Скопировать',
+                    onTap: () async {
+                      Navigator.of(sheetContext).pop();
+                      await Clipboard.setData(
+                        ClipboardData(text: decryptedText),
+                      );
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Скопировано')),
+                        );
+                      }
+                    },
+                  ),
+                  // A forwarded message isn't something I authored, even when I'm
+                  // the one who forwarded it — editing it wouldn't make sense
+                  // (same as Telegram/WhatsApp: forwards aren't editable).
+                  if (mine && message.forwardedFromSenderId == null)
+                    ActionSheetTile(
+                      icon: CupertinoIcons.pencil,
+                      label: 'Редактировать',
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _startEdit(message, decryptedText);
+                      },
+                    ),
+                  ActionSheetTile(
+                    icon: isPinned
+                        ? CupertinoIcons.pin_slash
+                        : CupertinoIcons.pin,
+                    label: isPinned ? 'Открепить' : 'Закрепить',
+                    onTap: () async {
+                      Navigator.of(sheetContext).pop();
+                      await chat?.toggleMessagePin(message.id, !isPinned);
+                      _refreshPinned();
+                    },
+                  ),
+                  ActionSheetTile(
+                    icon: CupertinoIcons.arrowshape_turn_up_right,
+                    label: 'Переслать',
+                    onTap: () async {
+                      Navigator.of(sheetContext).pop();
+                      await _forwardMessage(message, decryptedText);
+                    },
+                  ),
+                  if (mine)
+                    ActionSheetTile(
+                      icon: CupertinoIcons.delete,
+                      label: 'Удалить',
+                      destructive: true,
+                      onTap: () async {
+                        Navigator.of(sheetContext).pop();
+                        await chat?.deleteMessage(message.id);
+                      },
+                    ),
+                  Divider(height: 1, color: colors.border),
+                  ActionSheetTile(
+                    icon: CupertinoIcons.checkmark_circle,
+                    label: 'Выбрать',
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _enterSelection(message.id);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -584,37 +629,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         final message = entry.message!;
                         final mine = message.senderId == myId;
 
-                        if (message.deletedAt != null) {
-                          return Align(
-                            alignment: mine
-                                ? Alignment.centerRight
-                                : Alignment.centerLeft,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    '🗑 Сообщение удалено',
-                                    style: TextStyle(
-                                      color: colors.textSecondary,
-                                      fontStyle: FontStyle.italic,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    formatMessageTime(message.createdAt),
-                                    style: TextStyle(
-                                      color: colors.textSecondary,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }
+                        // Deleted messages are filtered out of `items`
+                        // entirely by _buildListEntries — nothing to render
+                        // for them, unlike WhatsApp's "this message was
+                        // deleted" placeholder.
 
                         final text =
                             chat?.decryptText(
@@ -841,21 +859,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ),
                       ),
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                      padding: const EdgeInsets.fromLTRB(8, 10, 12, 14),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
+                          // Not wired up yet — media (M3) is on hold, this is
+                          // just the visual slot for it.
+                          IconButton(
+                            icon: Icon(
+                              CupertinoIcons.paperclip,
+                              color: colors.textSecondary.withValues(
+                                alpha: 0.5,
+                              ),
+                            ),
+                            onPressed: null,
+                          ),
                           Expanded(
                             child: TextField(
                               controller: _textController,
                               style: TextStyle(color: colors.textPrimary),
+                              minLines: 1,
+                              maxLines: 5,
                               decoration: InputDecoration(
                                 hintText: 'Сообщение...',
                                 filled: true,
                                 fillColor: colors.surface,
                                 contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16,
-                                  vertical: 12,
+                                  vertical: 14,
                                 ),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(
@@ -868,25 +899,58 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          IconButton.filled(
-                            icon: _sending
-                                ? SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: colors.textOnAccent,
-                                    ),
-                                  )
-                                : Icon(
-                                    _editing != null ? Icons.check : Icons.send,
+                          ValueListenableBuilder<TextEditingValue>(
+                            valueListenable: _textController,
+                            builder: (context, value, _) {
+                              final hasText = value.text.trim().isNotEmpty;
+                              if (!hasText && !_sending) {
+                                // No text yet — voice/video-circle recording
+                                // isn't wired up either, this just toggles
+                                // which icon shows, same as WhatsApp/Telegram.
+                                return IconButton(
+                                  icon: Icon(
+                                    _voiceMode
+                                        ? CupertinoIcons.mic
+                                        : CupertinoIcons.videocam,
+                                    color: colors.textSecondary,
                                   ),
-                            style: IconButton.styleFrom(
-                              backgroundColor: colors.accent,
-                            ),
-                            onPressed: _sending
-                                ? null
-                                : () => _send(conversation),
+                                  onPressed: () =>
+                                      setState(() => _voiceMode = !_voiceMode),
+                                );
+                              }
+                              return Material(
+                                color: colors.accent,
+                                shape: const CircleBorder(),
+                                clipBehavior: Clip.antiAlias,
+                                child: InkWell(
+                                  onTap: _sending
+                                      ? null
+                                      : () => _send(conversation),
+                                  child: SizedBox(
+                                    width: 44,
+                                    height: 44,
+                                    child: Center(
+                                      child: _sending
+                                          ? SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: colors.textOnAccent,
+                                              ),
+                                            )
+                                          : Icon(
+                                              _editing != null
+                                                  ? CupertinoIcons.checkmark_alt
+                                                  : CupertinoIcons.arrow_up,
+                                              color: colors.textOnAccent,
+                                              size: 20,
+                                            ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         ],
                       ),
