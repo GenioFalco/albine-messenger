@@ -3,11 +3,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/errors/humanize_error.dart';
+import '../../core/format.dart';
 import '../../core/theme/albine_theme.dart';
 import '../../data/providers.dart';
 import '../../data/session_controller.dart';
 import '../../domain/models.dart';
 import '../../shared/widgets/app_widgets.dart';
+
+/// Either a day separator (shown once above the first message of that day)
+/// or a message bubble — see `_ChatScreenState._buildListEntries`.
+class _ChatListEntry {
+  const _ChatListEntry.separator(this.separatorDay) : message = null;
+  const _ChatListEntry.message(ChatMessage this.message) : separatorDay = null;
+
+  final DateTime? separatorDay;
+  final ChatMessage? message;
+}
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.conversationId, this.onBack});
@@ -133,6 +144,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (m.id == id) return m;
     }
     return null;
+  }
+
+  /// Interleaves a day-separator entry before the first message of each
+  /// calendar day — [items] is already in ascending `createdAt` order.
+  List<_ChatListEntry> _buildListEntries(List<ChatMessage> items) {
+    final entries = <_ChatListEntry>[];
+    DateTime? lastDay;
+    for (final m in items) {
+      final day = DateTime(m.createdAt.year, m.createdAt.month, m.createdAt.day);
+      if (lastDay == null || day != lastDay) {
+        entries.add(_ChatListEntry.separator(day));
+        lastDay = day;
+      }
+      entries.add(_ChatListEntry.message(m));
+    }
+    return entries;
   }
 
   Future<void> _showMessageActions({
@@ -320,6 +347,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   error: (e, _) => Center(child: AppErrorText(humanizeError(e))),
                   data: (rawItems) {
                     final items = chat?.applyEditEvents(rawItems, kind: conversation.kind, peer: conversation.peer) ?? rawItems;
+                    final entries = _buildListEntries(items);
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (_scrollController.hasClients) {
                         _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
@@ -328,9 +356,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     return ListView.builder(
                       controller: _scrollController,
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      itemCount: items.length,
+                      itemCount: entries.length,
                       itemBuilder: (context, index) {
-                        final message = items[index];
+                        final entry = entries[index];
+                        final separatorDay = entry.separatorDay;
+                        if (separatorDay != null) {
+                          return Center(
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(vertical: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: colors.surface,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                formatDateSeparator(separatorDay, DateTime.now()),
+                                style: TextStyle(fontSize: 12, color: colors.textSecondary),
+                              ),
+                            ),
+                          );
+                        }
+
+                        final message = entry.message!;
                         final mine = message.senderId == myId;
 
                         if (message.deletedAt != null) {
@@ -338,13 +385,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
                             child: Padding(
                               padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Text(
-                                '🗑 Сообщение удалено',
-                                style: TextStyle(
-                                  color: colors.textSecondary,
-                                  fontStyle: FontStyle.italic,
-                                  fontSize: 13,
-                                ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '🗑 Сообщение удалено',
+                                    style: TextStyle(
+                                      color: colors.textSecondary,
+                                      fontStyle: FontStyle.italic,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    formatMessageTime(message.createdAt),
+                                    style: TextStyle(color: colors.textSecondary, fontSize: 11),
+                                  ),
+                                ],
                               ),
                             ),
                           );
@@ -429,6 +486,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     Text(
                                       text,
                                       style: TextStyle(color: mine ? colors.textOnAccent : colors.textPrimary),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: Text(
+                                        formatMessageTime(message.createdAt),
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: mine
+                                              ? colors.textOnAccent.withValues(alpha: 0.75)
+                                              : colors.textSecondary,
+                                        ),
+                                      ),
                                     ),
                                   ],
                                 ),

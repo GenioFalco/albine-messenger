@@ -117,3 +117,5 @@ Session-level working log. Updated before major stages and at least every 30–4
 **Next steps:**
 1. Apply `0006_conversation_message_actions.sql` to the live Supabase project (along with the still-outstanding `0005`).
 2. Manual E2E in a real browser: swipe/long-press chat-list actions, reply/edit/pin/forward/delete in a direct chat and a group chat, confirm a hidden chat reappears on a new incoming message, confirm an edited message's preview updates in the conversation list.
+
+**Same-day follow-up:** added per-message HH:mm timestamps and day separators ("Сегодня"/"Вчера"/DD.MM.YYYY) in the chat screen, matching VK/WhatsApp-style grouping — `lib/core/format.dart` (`formatMessageTime`, `formatDateSeparator`), `lib/features/chat/chat_screen.dart` (`_ChatListEntry`/`_buildListEntries` interleaves separators between message bubbles; each bubble now shows its time bottom-right). `flutter analyze` clean, `flutter build web` succeeds.
