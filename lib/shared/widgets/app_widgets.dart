@@ -4,32 +4,51 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/albine_theme.dart';
 
-/// A bottom sheet whose entire background (not just the area behind the
-/// sheet card) is blurred, matching the iOS/Telegram/WhatsApp context-menu
-/// look — `showModalBottomSheet` alone only dims with a flat scrim.
-/// [builder] should return just the sheet's own content (a rounded card);
-/// this wraps it with the full-screen blur and bottom alignment.
+/// A small floating card (not a full-width bottom sheet) over a blurred
+/// background — matches the iOS/Telegram/WhatsApp context-menu look.
+/// [builder] should return just the card's own content; this constrains its
+/// width, positions it near the bottom, and blurs everything behind it.
+///
+/// Deliberately a dialog (`showGeneralDialog`), not `showModalBottomSheet`:
+/// an earlier version stretched the sheet's own hit-testable area to the
+/// full screen to get a full-background blur, which — because that area now
+/// covered where the framework's own "tap outside to dismiss" barrier would
+/// otherwise catch the tap — broke tapping outside to close (only the
+/// sheet's built-in swipe-down still worked). `barrierDismissible` on a
+/// dialog gives that behavior for free, and the blur can still cover the
+/// whole screen independently via the transition builder.
 Future<T?> showBlurredModalSheet<T>({
   required BuildContext context,
   required WidgetBuilder builder,
+  double maxWidth = 300,
 }) {
-  return showModalBottomSheet<T>(
+  return showGeneralDialog<T>(
     context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withValues(alpha: 0.2),
-    builder: (sheetContext) {
-      return ClipRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: SizedBox(
-            width: double.infinity,
-            height: MediaQuery.of(sheetContext).size.height,
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: builder(sheetContext),
+    barrierLabel: 'dismiss',
+    barrierDismissible: true,
+    barrierColor: Colors.transparent,
+    transitionDuration: const Duration(milliseconds: 180),
+    pageBuilder: (dialogContext, animation, secondaryAnimation) {
+      return SafeArea(
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxWidth),
+              child: builder(dialogContext),
             ),
           ),
+        ),
+      );
+    },
+    transitionBuilder: (context, animation, secondaryAnimation, child) {
+      final t = Curves.easeOut.transform(animation.value);
+      return BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 6 * t, sigmaY: 6 * t),
+        child: ColoredBox(
+          color: Colors.black.withValues(alpha: 0.12 * t),
+          child: Opacity(opacity: t, child: Transform.scale(scale: 0.94 + 0.06 * t, child: child)),
         ),
       );
     },

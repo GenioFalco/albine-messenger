@@ -112,6 +112,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final target = await showBlurredModalSheet<ConversationSummary>(
       context: context,
+      maxWidth: 420,
       builder: (context) => const _ForwardPickerSheet(),
     );
     if (target == null || !mounted) return;
@@ -365,6 +366,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   ) async {
     final target = await showBlurredModalSheet<ConversationSummary>(
       context: context,
+      maxWidth: 420,
       builder: (context) => const _ForwardPickerSheet(),
     );
     if (target == null || !mounted) return;
