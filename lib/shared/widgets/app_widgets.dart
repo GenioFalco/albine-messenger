@@ -36,7 +36,12 @@ Future<T?> showBlurredModalSheet<T>({
             padding: const EdgeInsets.all(12),
             child: ConstrainedBox(
               constraints: BoxConstraints(maxWidth: maxWidth),
-              child: builder(dialogContext),
+              // showModalBottomSheet wraps its content in a Material for
+              // you; showGeneralDialog doesn't — without this, any ListTile
+              // /InkWell inside builder() (every action sheet has one)
+              // throws "No Material widget found", which a release build
+              // renders as a plain gray box instead of an error message.
+              child: Material(type: MaterialType.transparency, child: builder(dialogContext)),
             ),
           ),
         ),
