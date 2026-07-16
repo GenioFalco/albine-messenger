@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/errors/humanize_error.dart';
@@ -63,6 +64,126 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
     } else {
       context.push('/chats/$id');
     }
+  }
+
+  Future<void> _showNewConversationMenu() async {
+    final colors = Theme.of(context).extension<AlbineColors>()!;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: colors.background,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(colors.radius)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            ListTile(
+              leading: Icon(Icons.person_outline, color: colors.textPrimary),
+              title: const Text('Личное сообщение'),
+              onTap: () {
+                Navigator.of(context).pop();
+                _startNewChat();
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.group_outlined, color: colors.textPrimary),
+              title: const Text('Групповой чат'),
+              onTap: () {
+                Navigator.of(context).pop();
+                _startNewGroup();
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _togglePinned(ConversationSummary convo) async {
+    final chat = ref.read(chatRepositoryProvider);
+    if (chat == null) return;
+    await chat.setConversationPinned(convo.id, !convo.isPinned);
+  }
+
+  Future<void> _toggleMuted(ConversationSummary convo) async {
+    final chat = ref.read(chatRepositoryProvider);
+    if (chat == null) return;
+    await chat.setConversationMuted(convo.id, !convo.muted);
+  }
+
+  Future<void> _deleteConversation(ConversationSummary convo) async {
+    final colors = Theme.of(context).extension<AlbineColors>()!;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: colors.background,
+        title: const Text('Удалить чат?'),
+        content: Text(
+          'Чат «${convo.displayTitle}» пропадёт из списка. Если придёт новое сообщение, он появится снова.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Отмена')),
+          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Удалить')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final chat = ref.read(chatRepositoryProvider);
+    if (chat == null) return;
+    await chat.hideConversation(convo.id);
+  }
+
+  Future<void> _showTileMenu(ConversationSummary convo) async {
+    final colors = Theme.of(context).extension<AlbineColors>()!;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: colors.background,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(colors.radius)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            ListTile(
+              leading: Icon(
+                convo.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                color: colors.textPrimary,
+              ),
+              title: Text(convo.isPinned ? 'Открепить' : 'Закрепить'),
+              onTap: () {
+                Navigator.of(context).pop();
+                _togglePinned(convo);
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                convo.muted ? Icons.notifications_outlined : Icons.notifications_off_outlined,
+                color: colors.textPrimary,
+              ),
+              title: Text(convo.muted ? 'Включить звук' : 'Отключить звук'),
+              onTap: () {
+                Navigator.of(context).pop();
+                _toggleMuted(convo);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: const Text('Удалить', style: TextStyle(color: Colors.red)),
+              onTap: () {
+                Navigator.of(context).pop();
+                _deleteConversation(convo);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -139,6 +260,10 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
               selected: widget.embedded && convo.id == selectedId,
               now: now,
               onTap: () => _openConversation(convo.id),
+              onLongPress: () => _showTileMenu(convo),
+              onPin: () => _togglePinned(convo),
+              onMute: () => _toggleMuted(convo),
+              onDelete: () => _deleteConversation(convo),
             );
           },
         );
@@ -162,14 +287,9 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.group_add_outlined),
-                  tooltip: 'Новая группа',
-                  onPressed: _startNewGroup,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.edit_outlined),
+                  icon: const Icon(Icons.add_circle_outline),
                   tooltip: 'Новый чат',
-                  onPressed: _startNewChat,
+                  onPressed: _showNewConversationMenu,
                 ),
               ],
             ),
@@ -206,14 +326,9 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
         title: const Text('Albine'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.group_add_outlined),
-            tooltip: 'Новая группа',
-            onPressed: _startNewGroup,
-          ),
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
+            icon: const Icon(Icons.add_circle_outline),
             tooltip: 'Новый чат',
-            onPressed: _startNewChat,
+            onPressed: _showNewConversationMenu,
           ),
         ],
       ),
@@ -228,77 +343,139 @@ class _ConversationTile extends StatelessWidget {
     required this.selected,
     required this.now,
     required this.onTap,
+    required this.onLongPress,
+    required this.onPin,
+    required this.onMute,
+    required this.onDelete,
   });
 
   final ConversationSummary convo;
   final bool selected;
   final DateTime now;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
+  final VoidCallback onPin;
+  final VoidCallback onMute;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AlbineColors>()!;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-      child: Material(
-        color: selected ? colors.surface : Colors.transparent,
-        borderRadius: BorderRadius.circular(colors.radius),
-        child: InkWell(
-          onTap: onTap,
+      child: Slidable(
+        key: ValueKey(convo.id),
+        startActionPane: ActionPane(
+          motion: const DrawerMotion(),
+          extentRatio: 0.28,
+          children: [
+            SlidableAction(
+              onPressed: (_) => onPin(),
+              backgroundColor: colors.accent,
+              foregroundColor: colors.textOnAccent,
+              icon: convo.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+              label: convo.isPinned ? 'Открепить' : 'Закрепить',
+              borderRadius: BorderRadius.circular(colors.radius),
+            ),
+          ],
+        ),
+        endActionPane: ActionPane(
+          motion: const DrawerMotion(),
+          extentRatio: 0.5,
+          children: [
+            SlidableAction(
+              onPressed: (_) => onMute(),
+              backgroundColor: Colors.orange,
+              foregroundColor: Colors.white,
+              icon: convo.muted ? Icons.notifications_outlined : Icons.notifications_off_outlined,
+              label: convo.muted ? 'Вкл. звук' : 'Без звука',
+              borderRadius: BorderRadius.circular(colors.radius),
+            ),
+            SlidableAction(
+              onPressed: (_) => onDelete(),
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              icon: Icons.delete_outline,
+              label: 'Удалить',
+              borderRadius: BorderRadius.circular(colors.radius),
+            ),
+          ],
+        ),
+        child: Material(
+          color: selected ? colors.surface : Colors.transparent,
           borderRadius: BorderRadius.circular(colors.radius),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 26,
-                  backgroundColor: colors.surfaceStrong,
-                  child: Text(
-                    convo.displayTitle.isNotEmpty ? convo.displayTitle[0].toUpperCase() : '?',
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 18,
+          child: InkWell(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            borderRadius: BorderRadius.circular(colors.radius),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 26,
+                    backgroundColor: colors.surfaceStrong,
+                    child: Text(
+                      convo.displayTitle.isNotEmpty ? convo.displayTitle[0].toUpperCase() : '?',
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 18,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              convo.displayTitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 16,
-                                color: colors.textPrimary,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            if (convo.isPinned) ...[
+                              Icon(Icons.push_pin, size: 14, color: colors.textSecondary),
+                              const SizedBox(width: 4),
+                            ],
+                            Expanded(
+                              child: Text(
+                                convo.displayTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 16,
+                                  color: colors.textPrimary,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            formatChatTimestamp(convo.updatedAt, now),
-                            style: TextStyle(fontSize: 12, color: colors.textSecondary),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        convo.previewText ?? 'Нет сообщений',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: colors.textSecondary, fontSize: 14),
-                      ),
-                    ],
+                            const SizedBox(width: 8),
+                            Text(
+                              formatChatTimestamp(convo.updatedAt, now),
+                              style: TextStyle(fontSize: 12, color: colors.textSecondary),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                convo.previewText ?? 'Нет сообщений',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: colors.textSecondary, fontSize: 14),
+                              ),
+                            ),
+                            if (convo.muted) ...[
+                              const SizedBox(width: 4),
+                              Icon(Icons.notifications_off_outlined, size: 15, color: colors.textSecondary),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

@@ -43,6 +43,9 @@ class ConversationSummary {
     this.peer,
     this.members,
     this.previewText,
+    this.pinnedAt,
+    this.muted = false,
+    this.hiddenAt,
   });
 
   final String id;
@@ -58,6 +61,22 @@ class ConversationSummary {
   final List<AppProfile>? members;
 
   final String? previewText;
+
+  /// This account's own preferences for this conversation — read from *my*
+  /// `conversation_members` row, never the other member's.
+  final DateTime? pinnedAt;
+  final bool muted;
+
+  /// Set when I "deleted" this chat — hides it from my list until a newer
+  /// message arrives (see [isHidden]). Never affects the other member(s).
+  final DateTime? hiddenAt;
+
+  bool get isPinned => pinnedAt != null;
+
+  /// Hidden unless a message has arrived since I hid it — mirrors
+  /// WhatsApp/Telegram's "delete chat" (per-device, reappears on a new
+  /// message rather than being gone forever).
+  bool get isHidden => hiddenAt != null && !updatedAt.isAfter(hiddenAt!);
 
   String get displayTitle => kind == ConversationKind.direct
       ? (peer?.displayName ?? peer?.username ?? '...')
@@ -75,6 +94,11 @@ class ChatMessage {
     required this.createdAt,
     required this.protocol,
     this.signalMessageType,
+    this.deletedAt,
+    this.replyToId,
+    this.pinnedAt,
+    this.forwardedFromSenderId,
+    this.editsMessageId,
   });
 
   final String id;
@@ -97,6 +121,30 @@ class ChatMessage {
   /// pick the right parser on decrypt.
   final int? signalMessageType;
 
+  /// Soft-delete marker — set by the sender, message is shown as a tombstone
+  /// instead of being decrypted.
+  final DateTime? deletedAt;
+
+  /// The message this one is replying to, if any (same conversation only).
+  final String? replyToId;
+
+  /// Set (by any conversation member, via the `toggle_message_pin` RPC) when
+  /// this message is pinned in its conversation.
+  final DateTime? pinnedAt;
+
+  /// Original sender, set only on a forwarded copy — for the "Переслано от
+  /// X" label. The forwarded row is otherwise an independent message with
+  /// its own fresh ciphertext, not a reference to the original.
+  final String? forwardedFromSenderId;
+
+  /// Set when this row is an *edit event* rather than a visible message: its
+  /// ciphertext decrypts to the new text for the message with this id. See
+  /// `0006_conversation_message_actions.sql` for why edits can't just
+  /// overwrite the original ciphertext in place.
+  final String? editsMessageId;
+
+  bool get isEditEvent => editsMessageId != null;
+
   factory ChatMessage.fromRow(Map<String, dynamic> row) => ChatMessage(
     id: row['id'] as String,
     conversationId: row['conversation_id'] as String,
@@ -107,5 +155,10 @@ class ChatMessage {
     createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
     protocol: row['protocol'] as String? ?? 'crypto_box',
     signalMessageType: row['signal_message_type'] as int?,
+    deletedAt: row['deleted_at'] == null ? null : DateTime.parse(row['deleted_at'] as String).toLocal(),
+    replyToId: row['reply_to_id'] as String?,
+    pinnedAt: row['pinned_at'] == null ? null : DateTime.parse(row['pinned_at'] as String).toLocal(),
+    forwardedFromSenderId: row['forwarded_from_sender_id'] as String?,
+    editsMessageId: row['edits_message_id'] as String?,
   );
 }

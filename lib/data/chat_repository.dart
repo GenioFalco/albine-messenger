@@ -143,6 +143,29 @@ class ChatRepository {
     }
   }
 
+  /// Latest edit text for a message, keyed by the *original* message's id —
+  /// populated by [_applyEditEvents] after the normal prewarm/decrypt passes
+  /// have resolved each edit-event row's own plaintext (an edit event is
+  /// itself just a normal message under whatever protocol was active, with
+  /// `edits_message_id` set; see `0006_conversation_message_actions.sql` for
+  /// why an edit can't just overwrite the original ciphertext in place).
+  /// [decryptText] checks this before any protocol-specific decryption.
+  final Map<String, String> _editOverrides = {};
+
+  /// Resolves every edit-event row in [messages] to its decrypted text and
+  /// records it in [_editOverrides], keyed by the message it edits. Must run
+  /// after the normal prewarm passes so each edit event's own ciphertext is
+  /// already decryptable via the usual [decryptText] path.
+  void _applyEditEvents(Iterable<ChatMessage> messages, {required ConversationKind kind, AppProfile? peer}) {
+    for (final m in messages) {
+      final targetId = m.editsMessageId;
+      if (targetId == null) continue;
+      final text = decryptText(m, kind: kind, peer: peer);
+      if (text.startsWith('🔒')) continue; // not resolved yet or failed — leave any earlier override in place
+      _editOverrides[targetId] = text;
+    }
+  }
+
   /// This device's copy of each group's symmetric key, unsealed once and
   /// cached — group AEAD decryption is otherwise synchronous, so this is the
   /// only async step, same "prewarm before the sync UI read" shape as
@@ -191,7 +214,7 @@ class ChatRepository {
   Future<List<ConversationSummary>> fetchConversations() async {
     final memberRows = await _client
         .from('conversation_members')
-        .select('conversation_id, conversations!inner(id, kind, title, created_at)')
+        .select('conversation_id, pinned_at, muted, hidden_at, conversations!inner(id, kind, title, created_at)')
         .eq('user_id', _myUserId);
 
     if (memberRows.isEmpty) return [];
@@ -222,10 +245,20 @@ class ChatRepository {
         .inFilter('conversation_id', conversationIds)
         .order('created_at', ascending: false);
 
+    // Rows are already newest-first, so the first non-edit-event row seen
+    // per conversation is the latest real message; the first edit-event row
+    // seen is the most recent edit *of any message* in that conversation
+    // (only relevant for the preview if it targets that latest message —
+    // editing an older message shouldn't resurrect/reorder the preview).
     final lastMessageByConversation = <String, ChatMessage>{};
+    final latestEditByConversation = <String, ChatMessage>{};
     for (final row in messageRows) {
       final msg = ChatMessage.fromRow(row);
-      lastMessageByConversation.putIfAbsent(msg.conversationId, () => msg);
+      if (msg.isEditEvent) {
+        latestEditByConversation.putIfAbsent(msg.conversationId, () => msg);
+      } else {
+        lastMessageByConversation.putIfAbsent(msg.conversationId, () => msg);
+      }
     }
 
     final summaries = <ConversationSummary>[];
@@ -237,14 +270,20 @@ class ChatRepository {
       final peer = kind == ConversationKind.direct && others.isNotEmpty ? others.first : null;
       final members = kind == ConversationKind.group ? others : null;
       final lastMessage = lastMessageByConversation[id];
+      final editOfLast = latestEditByConversation[id];
+      final editApplies = editOfLast != null && lastMessage != null && editOfLast.editsMessageId == lastMessage.id;
 
       var updatedAt = DateTime.parse(convo['created_at'] as String).toLocal();
       String? preview;
       if (lastMessage != null) {
         updatedAt = lastMessage.createdAt;
-        await _prewarmSignalDecryption([lastMessage]);
+        await _prewarmSignalDecryption([lastMessage, if (editApplies) editOfLast]);
         await _prewarmGroupKey(id);
-        preview = decryptText(lastMessage, kind: kind, peer: peer);
+        if (editApplies) {
+          _applyEditEvents([editOfLast], kind: kind, peer: peer);
+          updatedAt = editOfLast.createdAt;
+        }
+        preview = lastMessage.deletedAt != null ? '🗑 Сообщение удалено' : decryptText(lastMessage, kind: kind, peer: peer);
       }
 
       summaries.add(
@@ -256,12 +295,46 @@ class ChatRepository {
           peer: peer,
           members: members,
           previewText: preview,
+          pinnedAt: r['pinned_at'] == null ? null : DateTime.parse(r['pinned_at'] as String).toLocal(),
+          muted: r['muted'] as bool? ?? false,
+          hiddenAt: r['hidden_at'] == null ? null : DateTime.parse(r['hidden_at'] as String).toLocal(),
         ),
       );
     }
 
-    summaries.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    return summaries;
+    final visible = summaries.where((s) => !s.isHidden).toList();
+    visible.sort((a, b) {
+      if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
+      return b.updatedAt.compareTo(a.updatedAt);
+    });
+    return visible;
+  }
+
+  Future<void> setConversationPinned(String conversationId, bool pinned) {
+    return _client
+        .from('conversation_members')
+        .update({'pinned_at': pinned ? DateTime.now().toUtc().toIso8601String() : null})
+        .eq('conversation_id', conversationId)
+        .eq('user_id', _myUserId);
+  }
+
+  Future<void> setConversationMuted(String conversationId, bool muted) {
+    return _client
+        .from('conversation_members')
+        .update({'muted': muted})
+        .eq('conversation_id', conversationId)
+        .eq('user_id', _myUserId);
+  }
+
+  /// "Deletes" a chat for this account only — hides it from [fetchConversations]
+  /// until a newer message arrives (see [ConversationSummary.isHidden]).
+  /// Never touches the other member(s)' rows or any message.
+  Future<void> hideConversation(String conversationId) {
+    return _client
+        .from('conversation_members')
+        .update({'hidden_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('conversation_id', conversationId)
+        .eq('user_id', _myUserId);
   }
 
   /// Re-fetches the conversation list whenever membership or any visible
@@ -364,10 +437,63 @@ class ChatRepository {
         });
   }
 
+  /// Resolves edit events in [messages] (recording each into
+  /// [_editOverrides], read back by [decryptText]) and strips them out —
+  /// they exist purely to update another message's displayed text and are
+  /// never rendered as their own bubble. Callers already have the
+  /// conversation's `kind`/`peer` on hand (e.g. `chat_screen.dart`, which
+  /// loads the conversation summary and message stream side by side), so
+  /// this stays a plain method here rather than a parameter on
+  /// [watchMessages] itself.
+  List<ChatMessage> applyEditEvents(List<ChatMessage> messages, {required ConversationKind kind, AppProfile? peer}) {
+    _applyEditEvents(messages, kind: kind, peer: peer);
+    return messages.where((m) => !m.isEditEvent).toList();
+  }
+
+  /// The most recently pinned message in [conversationId], if any (v1 shows
+  /// only the latest pin as a single banner, even though multiple messages
+  /// can technically be marked pinned).
+  Future<ChatMessage?> fetchPinnedMessage(String conversationId) async {
+    final row = await _client
+        .from('messages')
+        .select()
+        .eq('conversation_id', conversationId)
+        .not('pinned_at', 'is', null)
+        .order('pinned_at', ascending: false)
+        .limit(1)
+        .maybeSingle();
+    return row == null ? null : ChatMessage.fromRow(row);
+  }
+
+  /// Any conversation member may pin/unpin — enforced server-side by the
+  /// `toggle_message_pin` RPC, which only ever touches `pinned_at` (a
+  /// non-sender could not use this to alter someone else's message content).
+  Future<void> toggleMessagePin(String messageId, bool pin) {
+    return _client.rpc('toggle_message_pin', params: {'p_message_id': messageId, 'p_pin': pin});
+  }
+
+  /// Soft-deletes (sender only, enforced by RLS) and scrubs the ciphertext
+  /// server-side — a deleted message shouldn't linger as recoverable content
+  /// just because the flag is flipped.
+  Future<void> deleteMessage(String messageId) {
+    return _client
+        .from('messages')
+        .update({'deleted_at': DateTime.now().toUtc().toIso8601String(), 'ciphertext': '', 'nonce': null})
+        .eq('id', messageId)
+        .eq('sender_id', _myUserId);
+  }
+
+  /// [replyToId]/[editsMessageId]/[forwardedFromSenderId] are all optional
+  /// markers on an otherwise-normal send — see `0006_conversation_message_actions.sql`.
+  /// An edit (`editsMessageId` set) is never rendered as its own bubble; its
+  /// decrypted text is recorded in [_editOverrides] for the message it edits.
   Future<void> sendDirectMessage({
     required String conversationId,
     required AppProfile peer,
     required String text,
+    String? replyToId,
+    String? editsMessageId,
+    String? forwardedFromSenderId,
   }) async {
     final plaintext = Uint8List.fromList(utf8.encode(text));
     final signalMessage = await _signal.encryptForContact(peer, plaintext);
@@ -400,18 +526,28 @@ class ChatRepository {
         'content_type': 'text',
       };
     }
+    if (replyToId != null) row['reply_to_id'] = replyToId;
+    if (editsMessageId != null) row['edits_message_id'] = editsMessageId;
+    if (forwardedFromSenderId != null) row['forwarded_from_sender_id'] = forwardedFromSenderId;
 
     final inserted = await _client.from('messages').insert(row).select('id').single();
     if (signalMessage != null) {
       await _rememberSentEcho(inserted['id'] as String, text);
     }
+    if (editsMessageId != null) _editOverrides[editsMessageId] = text;
   }
 
   /// Sending to a group with no key at all (shouldn't normally happen —
   /// every member gets one sealed at creation time) is a real error, so
   /// this throws rather than silently no-op'ing like the Signal fallback
   /// does for direct messages.
-  Future<void> sendGroupMessage({required String conversationId, required String text}) async {
+  Future<void> sendGroupMessage({
+    required String conversationId,
+    required String text,
+    String? replyToId,
+    String? editsMessageId,
+    String? forwardedFromSenderId,
+  }) async {
     final groupKey = await _tryGroupKeyFor(conversationId);
     if (groupKey == null) {
       throw StateError('No group key cached or published for conversation $conversationId');
@@ -431,7 +567,38 @@ class ChatRepository {
       // disambiguates within 1:1 messages (see decryptText); a message's
       // `ConversationKind` alone already fully determines that this row
       // uses the group AEAD scheme, not the legacy 1:1 crypto_box.
+      if (replyToId != null) 'reply_to_id': replyToId,
+      if (editsMessageId != null) 'edits_message_id': editsMessageId,
+      if (forwardedFromSenderId != null) 'forwarded_from_sender_id': forwardedFromSenderId,
     });
+    if (editsMessageId != null) _editOverrides[editsMessageId] = text;
+  }
+
+  /// Re-encrypts an already-decrypted message fresh for [targetConversationId]
+  /// — a forward is a normal independent message, not a reference to the
+  /// original ciphertext (the target may use an entirely different protocol
+  /// or group key). [originalSenderId] is kept only for the "Переслано от X"
+  /// label.
+  Future<void> forwardMessage({
+    required String text,
+    required String originalSenderId,
+    required String targetConversationId,
+    required ConversationKind targetKind,
+    AppProfile? targetPeer,
+  }) {
+    if (targetKind == ConversationKind.group) {
+      return sendGroupMessage(
+        conversationId: targetConversationId,
+        text: text,
+        forwardedFromSenderId: originalSenderId,
+      );
+    }
+    return sendDirectMessage(
+      conversationId: targetConversationId,
+      peer: targetPeer!,
+      text: text,
+      forwardedFromSenderId: originalSenderId,
+    );
   }
 
   /// Decrypts a message for display. Stays synchronous (called straight
@@ -446,6 +613,10 @@ class ChatRepository {
   /// works for messages I sent too — the shared secret is symmetric between
   /// the two parties regardless of direction.
   String decryptText(ChatMessage message, {required ConversationKind kind, AppProfile? peer}) {
+    if (message.deletedAt != null) return '🗑 Сообщение удалено';
+    final override = _editOverrides[message.id];
+    if (override != null) return override;
+
     if (kind == ConversationKind.group) {
       final groupKey = _groupKeyCache[message.conversationId];
       if (groupKey == null) {

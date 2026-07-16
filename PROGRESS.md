@@ -94,3 +94,26 @@ Session-level working log. Updated before major stages and at least every 30–4
 1. Apply `0005_fix_claim_one_time_prekey.sql` to the live Supabase project.
 2. Re-test sending in both the direct chat and the group chat that failed.
 3. Re-run the full M1.5 manual E2E checklist above now that this root cause is fixed.
+
+**Known limitation found during this round (not a bug, not fixed):** signing into the same account from two devices (phone + PC) at once, each builds its own independent Double Ratchet session per contact — a message encrypted on one device's ratchet chain can't be decrypted by the other's. Real WhatsApp/Signal solve this with proper multi-device (each device is a distinct registered `deviceId`, sender fans out ciphertext to every device including its own others). User chose to defer this — see ROADMAP.md "Приняты сознательно" — current model is effectively single-active-device for live forward-secret messaging; server-side key backup still restores everything on a new device, it just doesn't *live-sync* between two devices used simultaneously.
+
+---
+
+## 2026-07-15 — UI overhaul: unified new-chat button, chat list actions, message actions
+
+**Status:** User paused M3 (media) to request a UI/UX pass instead: one unified "new conversation" entry point, swipe/long-press actions on the conversation list (pin/mute/delete), and per-message actions (reply/edit/pin/delete/forward) in the chat screen. Implemented in full; `flutter analyze` clean, `flutter build web` succeeds. Not yet manually tested in a real browser.
+
+**New migration:** `supabase/migrations/0006_conversation_message_actions.sql` — adds `conversation_members.pinned_at/muted/hidden_at` (per-user chat prefs, no RLS changes needed — already covered by the existing "update own membership row" policy) and `messages.reply_to_id/pinned_at/forwarded_from_sender_id/edits_message_id`, plus a `toggle_message_pin` RPC (any member can pin/unpin, but the RPC only ever touches `pinned_at` — can't be used to smuggle a content change into someone else's message). **Needs to be applied to the live Supabase project — not done yet, same as 0005.**
+
+**Design note on editing:** a `protocol: 'signal'` message's ciphertext can't be overwritten in place after the fact — that message's one-time key is already discarded (forward secrecy working as intended, the same reason outgoing signal messages need the local sent-echo cache). So an edit is implemented as its own new encrypted message (`edits_message_id` pointing at the target), applied client-side as a text override for the target's display rather than rendered as a separate bubble — this is how real Signal/WhatsApp edits work too, not a shortcut.
+
+**Changed files:**
+- `pubspec.yaml` — added `flutter_slidable` for the conversation-list swipe actions.
+- `lib/domain/models.dart` — `ConversationSummary` gains `pinnedAt`/`muted`/`hiddenAt` (+ `isPinned`/`isHidden` getters); `ChatMessage` gains `deletedAt`/`replyToId`/`pinnedAt`/`forwardedFromSenderId`/`editsMessageId` (+ `isEditEvent`).
+- `lib/data/chat_repository.dart` — `_editOverrides` cache + `_applyEditEvents`/`applyEditEvents` (resolves edit-event rows to text overrides, strips them from the visible list); `fetchConversations()` now selects/returns pin/mute/hidden state, filters hidden conversations (reappear once a newer message arrives), sorts pinned-first, and folds the latest edit into the preview if it targets the last message; `setConversationPinned`/`setConversationMuted`/`hideConversation`; `sendDirectMessage`/`sendGroupMessage` take optional `replyToId`/`editsMessageId`/`forwardedFromSenderId`; new `forwardMessage`, `fetchPinnedMessage`, `toggleMessagePin`, `deleteMessage` (scrubs ciphertext server-side, not just a flag); `decryptText` checks `deletedAt`/`_editOverrides` first.
+- `lib/features/conversations/conversations_screen.dart` — the two icon buttons became one ("+") opening a sheet to choose direct vs group; `_ConversationTile` wrapped in `Slidable` (swipe right: pin, swipe left: mute + delete) with a long-press sheet offering the same three actions; pin/mute indicators in the tile.
+- `lib/features/chat/chat_screen.dart` — long-press a message for an action sheet (Reply/Edit[own]/Pin/Forward/Delete[own]); reply shows a quoted preview inside the bubble and a composer strip above the input; edit pre-fills the input and swaps the send icon to a checkmark; deleted messages render as a tombstone; forwarded messages show "Переслано от X"; a pinned-message banner sits above the message list. New `_ForwardPickerSheet` (reuses the conversations stream) for picking a forward target.
+
+**Next steps:**
+1. Apply `0006_conversation_message_actions.sql` to the live Supabase project (along with the still-outstanding `0005`).
+2. Manual E2E in a real browser: swipe/long-press chat-list actions, reply/edit/pin/forward/delete in a direct chat and a group chat, confirm a hidden chat reappears on a new incoming message, confirm an edited message's preview updates in the conversation list.
