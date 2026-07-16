@@ -5,9 +5,12 @@ import 'package:flutter/material.dart';
 import '../../core/theme/albine_theme.dart';
 
 /// A small floating card (not a full-width bottom sheet) over a blurred
-/// background — matches the iOS/Telegram/WhatsApp context-menu look.
+/// background — matches the iOS/Telegram/WhatsApp mobile context-menu look.
 /// [builder] should return just the card's own content; this constrains its
-/// width, positions it near the bottom, and blurs everything behind it.
+/// width, positions it near the bottom, and blurs everything behind it on
+/// narrow (mobile-layout) screens. On wide/desktop screens there's no blur
+/// or dim at all, matching the Telegram desktop reference — just the
+/// floating card over the sharp, unmodified background.
 ///
 /// Deliberately a dialog (`showGeneralDialog`), not `showModalBottomSheet`:
 /// an earlier version stretched the sheet's own hit-testable area to the
@@ -22,6 +25,10 @@ Future<T?> showBlurredModalSheet<T>({
   required WidgetBuilder builder,
   double maxWidth = 300,
 }) {
+  // Mirrors main_shell.dart's `_wideBreakpoint` (900) — below it we're the
+  // single-column mobile layout.
+  final blurred = MediaQuery.sizeOf(context).width < 900;
+
   return showGeneralDialog<T>(
     context: context,
     barrierLabel: 'dismiss',
@@ -49,12 +56,29 @@ Future<T?> showBlurredModalSheet<T>({
     },
     transitionBuilder: (context, animation, secondaryAnimation, child) {
       final t = Curves.easeOut.transform(animation.value);
-      return BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 6 * t, sigmaY: 6 * t),
-        child: ColoredBox(
-          color: Colors.black.withValues(alpha: 0.12 * t),
-          child: Opacity(opacity: t, child: Transform.scale(scale: 0.94 + 0.06 * t, child: child)),
-        ),
+      // A colored/decorated box is opaque to hit-testing over its *entire*
+      // area even where nothing else is painted — wrapping the dim/blur
+      // veil around the card (as an earlier version did) meant every tap,
+      // including ones meant to reach the barrier below and dismiss the
+      // sheet, was swallowed by this veil instead. Making it an explicit
+      // sibling (via Stack) with its own tap-to-dismiss handler fixes that:
+      // the card, painted after it, still gets first claim on its own area.
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => Navigator.of(context).maybePop(),
+              child: blurred
+                  ? BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 6 * t, sigmaY: 6 * t),
+                      child: ColoredBox(color: Colors.black.withValues(alpha: 0.12 * t)),
+                    )
+                  : const SizedBox.expand(),
+            ),
+          ),
+          Opacity(opacity: t, child: Transform.scale(scale: 0.94 + 0.06 * t, child: child)),
+        ],
       );
     },
   );
