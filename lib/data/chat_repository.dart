@@ -5,6 +5,7 @@ import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sodium/sodium_sumo.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 import '../domain/models.dart';
 import '../services/crypto/crypto_models.dart';
@@ -603,6 +604,90 @@ class ChatRepository {
     );
   }
 
+  /// Encrypts [bytes] with a fresh per-file symmetric key (the same generic
+  /// AEAD primitive as group text messages — nothing group-specific about
+  /// it), uploads the ciphertext to the `media` storage bucket, and seals
+  /// that key to every member of [recipients], **including the sender** —
+  /// same reason group message keys are sealed to self too: otherwise the
+  /// sender couldn't reopen their own sent media after a reload.
+  ///
+  /// [contentType] is `'image'` (rendered inline) or `'file'` — video also
+  /// uses `'file'` with a `video/*` [mimeHint] rather than a third
+  /// content_type, since there's no inline video playback yet; the mime
+  /// hint is there for a future client to pick a video UI without a schema
+  /// change.
+  Future<void> sendMediaMessage({
+    required String conversationId,
+    required List<AppProfile> recipients,
+    required Uint8List bytes,
+    required String contentType,
+    required String mimeHint,
+    String? replyToId,
+  }) async {
+    final key = _crypto.generateGroupKey();
+    try {
+      final payload = _crypto.encryptGroupMessage(
+        groupKey: key,
+        conversationId: conversationId,
+        plaintext: bytes,
+      );
+      final path = '$conversationId/${const Uuid().v4()}';
+      await _client.storage.from('media').uploadBinary(path, payload.ciphertext);
+
+      final wrappedByUser = <String, String>{
+        for (final p in recipients)
+          p.id: base64Encode(_crypto.sealGroupKeyForMember(memberPublicKey: p.identityPubkey, groupKey: key)),
+      };
+
+      await _client.from('messages').insert({
+        'conversation_id': conversationId,
+        'sender_id': _myUserId,
+        'ciphertext': '',
+        'content_type': contentType,
+        'media_object_path': path,
+        'media_wrapped_key': jsonEncode(wrappedByUser),
+        'media_nonce': base64Encode(payload.nonce),
+        'media_size_bytes': bytes.length,
+        'media_mime_hint': mimeHint,
+        if (replyToId != null) 'reply_to_id': replyToId,
+      });
+    } finally {
+      key.dispose();
+    }
+  }
+
+  /// Downloaded+decrypted media bytes, keyed by message id — a media
+  /// message's key is unique per-message (unlike the shared group text key),
+  /// so this caches per message rather than per conversation.
+  final Map<String, Uint8List> _mediaCache = {};
+
+  Future<Uint8List?> fetchAndDecryptMedia(ChatMessage message) async {
+    final cached = _mediaCache[message.id];
+    if (cached != null) return cached;
+    final path = message.mediaObjectPath;
+    final wrappedJson = message.mediaWrappedKey;
+    final nonce = message.mediaNonce;
+    if (path == null || wrappedJson == null || nonce == null) return null;
+
+    final wrappedByUser = jsonDecode(wrappedJson) as Map<String, dynamic>;
+    final myWrapped = wrappedByUser[_myUserId] as String?;
+    if (myWrapped == null) return null;
+
+    final ciphertext = await _client.storage.from('media').download(path);
+    final key = _crypto.openSealedGroupKey(myKeyPair: _myKeyPair, sealed: base64Decode(myWrapped));
+    try {
+      final bytes = _crypto.decryptGroupMessage(
+        groupKey: key,
+        conversationId: message.conversationId,
+        payload: EncryptedPayload(ciphertext: ciphertext, nonce: nonce),
+      );
+      _mediaCache[message.id] = bytes;
+      return bytes;
+    } finally {
+      key.dispose();
+    }
+  }
+
   /// Decrypts a message for display. Stays synchronous (called straight
   /// from `ListView.builder`'s `itemBuilder`) — for `protocol: 'signal'`
   /// and for group messages this only ever reads an already-resolved cache;
@@ -618,6 +703,14 @@ class ChatRepository {
     if (message.deletedAt != null) return '🗑 Сообщение удалено';
     final override = _editOverrides[message.id];
     if (override != null) return override;
+    // Media messages have no text ciphertext to decrypt at all — used for
+    // reply-quote previews, the pinned banner, and the chat-list preview,
+    // all of which just want a short label, not the actual bytes.
+    if (message.contentType == 'image') return '📷 Фото';
+    if (message.contentType == 'file') {
+      final isVideo = message.mediaMimeHint?.startsWith('video/') ?? false;
+      return isVideo ? '🎥 Видео' : '📎 Файл';
+    }
 
     if (kind == ConversationKind.group) {
       final groupKey = _groupKeyCache[message.conversationId];

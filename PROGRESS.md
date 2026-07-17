@@ -157,3 +157,23 @@ Session-level working log. Updated before major stages and at least every 30–4
 **Next steps:**
 1. Apply `0005`/`0006`/`0007` migrations to the live Supabase project (still outstanding).
 2. Manual E2E: group chat shows sender name/avatar correctly, pin banner + reply-quote scroll-to-message and highlight, long-press menu appears near the pressed message (above vs below near screen edges) without breaking tap-to-dismiss, message list still auto-scrolls to bottom on new messages.
+
+---
+
+## 2026-07-17 — M3: media attachments (photo/video/file)
+
+**Status:** User asked to resume M3 (paused earlier for the UI overhaul). Implemented: pick + send photo/video/file from the paperclip icon, encrypted end-to-end, uploaded to a new private Storage bucket, decrypted and rendered on receipt. `flutter analyze` clean, `flutter build web` succeeds. Not yet tested live.
+
+**Encryption design:** reuses the *exact same* generic AEAD primitives already built for group text messages (`CryptoService.generateGroupKey`/`encryptGroupMessage`/`decryptGroupMessage` — nothing about them is actually group-specific, just named that way) — a fresh random symmetric key per file, sealed (`crypto_box_seal`) to every conversation member's identity public key **including the sender's own**, same reason group message keys are sealed to self too (so the sender can reopen their own sent media after a reload). This means media inherits the same accepted trade-off groups already have: no forward secrecy (a compromised identity key could retroactively decrypt past media, same as it already could for group text) — not a new gap, just extending the existing one.
+
+**New migration:** `supabase/migrations/0008_media_storage.sql` — creates the `media` Storage bucket (private) and two RLS policies on `storage.objects` (select/insert) that authorize purely from the object path (`<conversation_id>/<uuid>`) via the existing `is_conversation_member()` helper, no new lookup table needed. **Requires applying to the live Supabase project — not done yet.**
+
+**Changed files:**
+- `pubspec.yaml` — added `file_picker` (cross-platform file selection, works on web via in-memory bytes) and promoted the already-transitive `uuid` to a direct dependency (used to name storage objects).
+- `lib/domain/models.dart` — `ChatMessage` gains `mediaObjectPath`/`mediaWrappedKey`/`mediaNonce`/`mediaSizeBytes`/`mediaMimeHint` (+ `isMedia` getter) reading the columns that already existed in the schema since `0001_init.sql` but were unused until now.
+- `lib/data/chat_repository.dart` — new `sendMediaMessage()` (encrypt, upload via `storage.from('media').uploadBinary`, seal the key per recipient, insert the message row) and `fetchAndDecryptMedia()` (download + open the sealed key + AEAD-decrypt, cached per message id since each file has its own unique key unlike the shared per-conversation group text key). `decryptText()` now returns a short label ("📷 Фото"/"🎥 Видео"/"📎 Файл") for media messages instead of trying to decrypt them as text — used by reply-quote previews, the pinned banner, and the chat-list preview.
+- `lib/features/chat/chat_screen.dart` — paperclip icon now opens an attachment sheet (Фото/Видео/Файл, reusing `showBlurredModalSheet`/`ActionSheetTile`); `_pickAndSendMedia` drives `file_picker` and calls `sendMediaMessage` with the right recipient list (self + peer, or self + all group members); message bubbles branch on `content_type`: images render inline via `Image.memory` (with a loading spinner while `fetchAndDecryptMedia` runs), files/videos render as a chip (icon + size) that decrypts and triggers a browser download via `dart:html`'s Blob/AnchorElement trick on tap — the standard way to save in-memory bytes to disk from Flutter Web, which has no filesystem access. Video keeps `content_type: 'file'` (no inline player yet) with a `video/*` `media_mime_hint` for a future client to use instead of adding a third content_type now.
+
+**Next steps:**
+1. Apply `0008_media_storage.sql` to the live Supabase project (along with the still-outstanding `0005`/`0006`/`0007`).
+2. Manual E2E: send a photo/video/file in both a direct and a group chat, confirm the image renders inline, confirm downloading a file/video produces a working local file, confirm existing text messages are unaffected.

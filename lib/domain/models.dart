@@ -99,6 +99,11 @@ class ChatMessage {
     this.pinnedAt,
     this.forwardedFromSenderId,
     this.editsMessageId,
+    this.mediaObjectPath,
+    this.mediaWrappedKey,
+    this.mediaNonce,
+    this.mediaSizeBytes,
+    this.mediaMimeHint,
   });
 
   final String id;
@@ -145,6 +150,29 @@ class ChatMessage {
 
   bool get isEditEvent => editsMessageId != null;
 
+  /// Object path in the `media` storage bucket — set only for
+  /// `content_type in ('image', 'file')`. Ciphertext only, decrypted via
+  /// [mediaWrappedKey]/[mediaNonce] (see `ChatRepository.fetchAndDecryptMedia`).
+  final String? mediaObjectPath;
+
+  /// JSON map of `{user_id: base64(crypto_box_seal(fileKey))}` — one entry
+  /// per conversation member (including the sender, same reason group text
+  /// keys are sealed to self too) so everyone can independently open their
+  /// own copy of the per-file symmetric key.
+  final String? mediaWrappedKey;
+  final Uint8List? mediaNonce;
+  final int? mediaSizeBytes;
+
+  /// Real MIME type of the attachment. `content_type` only distinguishes
+  /// "image" (rendered inline) from "file" (shown as a generic chip) —
+  /// video is stored as `content_type: 'file'` with a `video/*` mime hint
+  /// rather than adding a third content_type (no inline playback yet; the
+  /// mime hint is there for a future client to pick a video-specific UI
+  /// without a schema change).
+  final String? mediaMimeHint;
+
+  bool get isMedia => contentType == 'image' || contentType == 'file';
+
   factory ChatMessage.fromRow(Map<String, dynamic> row) => ChatMessage(
     id: row['id'] as String,
     conversationId: row['conversation_id'] as String,
@@ -160,5 +188,10 @@ class ChatMessage {
     pinnedAt: row['pinned_at'] == null ? null : DateTime.parse(row['pinned_at'] as String).toLocal(),
     forwardedFromSenderId: row['forwarded_from_sender_id'] as String?,
     editsMessageId: row['edits_message_id'] as String?,
+    mediaObjectPath: row['media_object_path'] as String?,
+    mediaWrappedKey: row['media_wrapped_key'] as String?,
+    mediaNonce: row['media_nonce'] == null ? null : base64Decode(row['media_nonce'] as String),
+    mediaSizeBytes: row['media_size_bytes'] as int?,
+    mediaMimeHint: row['media_mime_hint'] as String?,
   );
 }

@@ -43,6 +43,8 @@ dependencies:
   rxdart: ^0.28.0
   libsignal_protocol_dart: ^0.8.2
   flutter_slidable: ^4.0.3
+  file_picker: ^11.0.2
+  uuid: ^4.6.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

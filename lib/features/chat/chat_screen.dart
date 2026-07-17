@@ -1,3 +1,6 @@
+import 'dart:html' as html;
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -307,6 +310,255 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       entries.add(_ChatListEntry.message(m));
     }
     return entries;
+  }
+
+  Future<void> _showAttachmentMenu(ConversationSummary conversation) async {
+    final colors = Theme.of(context).extension<AlbineColors>()!;
+    await showBlurredModalSheet<void>(
+      context: context,
+      builder: (sheetContext) => Container(
+        margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        decoration: BoxDecoration(
+          color: colors.background.withValues(alpha: 0.94),
+          borderRadius: BorderRadius.circular(colors.radius),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ActionSheetTile(
+                icon: CupertinoIcons.photo,
+                label: 'Фото',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _pickAndSendMedia(
+                    conversation,
+                    fileType: FileType.image,
+                    contentType: 'image',
+                    mimeKind: 'image',
+                  );
+                },
+              ),
+              ActionSheetTile(
+                icon: CupertinoIcons.videocam,
+                label: 'Видео',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _pickAndSendMedia(
+                    conversation,
+                    fileType: FileType.video,
+                    contentType: 'file',
+                    mimeKind: 'video',
+                  );
+                },
+              ),
+              ActionSheetTile(
+                icon: CupertinoIcons.doc,
+                label: 'Файл',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _pickAndSendMedia(
+                    conversation,
+                    fileType: FileType.any,
+                    contentType: 'file',
+                    mimeKind: 'file',
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _guessMime(String? extension, String kind) {
+    switch (extension?.toLowerCase()) {
+      case 'png':
+        return 'image/png';
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'gif':
+        return 'image/gif';
+      case 'webp':
+        return 'image/webp';
+      case 'mp4':
+        return 'video/mp4';
+      case 'mov':
+        return 'video/quicktime';
+      case 'webm':
+        return 'video/webm';
+      case 'pdf':
+        return 'application/pdf';
+    }
+    if (kind == 'image') return 'image/jpeg';
+    if (kind == 'video') return 'video/mp4';
+    return 'application/octet-stream';
+  }
+
+  Future<void> _pickAndSendMedia(
+    ConversationSummary conversation, {
+    required FileType fileType,
+    required String contentType,
+    required String mimeKind,
+  }) async {
+    final result = await FilePicker.pickFiles(type: fileType, withData: true);
+    final file = result?.files.singleOrNull;
+    final bytes = file?.bytes;
+    if (file == null || bytes == null || !mounted) return;
+
+    final chat = ref.read(chatRepositoryProvider);
+    final myProfile = ref.read(sessionControllerProvider).profile;
+    if (chat == null || myProfile == null) return;
+
+    final recipients = <AppProfile>[myProfile];
+    if (conversation.kind == ConversationKind.group) {
+      recipients.addAll(conversation.members ?? const []);
+    } else if (conversation.peer != null) {
+      recipients.add(conversation.peer!);
+    } else {
+      return;
+    }
+
+    try {
+      await chat.sendMediaMessage(
+        conversationId: widget.conversationId,
+        recipients: recipients,
+        bytes: bytes,
+        contentType: contentType,
+        mimeHint: _guessMime(file.extension, mimeKind),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Не удалось отправить файл: ${humanizeError(e)}'),
+          ),
+        );
+      }
+    }
+  }
+
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024) return '$bytes Б';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} КБ';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} МБ';
+  }
+
+  Future<void> _downloadMedia(ChatMessage message) async {
+    final chat = ref.read(chatRepositoryProvider);
+    final bytes = await chat?.fetchAndDecryptMedia(message);
+    if (bytes == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось скачать файл')),
+        );
+      }
+      return;
+    }
+    // Flutter Web has no filesystem access — this is the standard trick for
+    // triggering a browser download of in-memory bytes (create a Blob,
+    // point a throwaway <a download> at it, click it programmatically).
+    final blob = html.Blob([
+      bytes,
+    ], message.mediaMimeHint ?? 'application/octet-stream');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    html.AnchorElement(href: url)
+      ..setAttribute(
+        'download',
+        message.mediaMimeHint?.startsWith('video/') ?? false ? 'video' : 'file',
+      )
+      ..click();
+    html.Url.revokeObjectUrl(url);
+  }
+
+  Widget _buildMessageBody({
+    required ChatMessage message,
+    required String text,
+    required bool mine,
+    required AlbineColors colors,
+  }) {
+    final chat = ref.read(chatRepositoryProvider);
+    if (message.contentType == 'image' && chat != null) {
+      return FutureBuilder<Uint8List?>(
+        future: chat.fetchAndDecryptMedia(message),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const SizedBox(
+              width: 160,
+              height: 160,
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            );
+          }
+          final bytes = snapshot.data;
+          if (bytes == null) {
+            return Text(
+              '📷 Не удалось загрузить фото',
+              style: TextStyle(
+                color: mine ? colors.textOnAccent : colors.textPrimary,
+              ),
+            );
+          }
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Image.memory(bytes, fit: BoxFit.cover, width: 220),
+          );
+        },
+      );
+    }
+
+    if (message.contentType == 'file' && chat != null) {
+      final isVideo = message.mediaMimeHint?.startsWith('video/') ?? false;
+      final sizeLabel = message.mediaSizeBytes != null
+          ? _formatFileSize(message.mediaSizeBytes!)
+          : '';
+      return InkWell(
+        onTap: () => _downloadMedia(message),
+        borderRadius: BorderRadius.circular(10),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isVideo
+                  ? CupertinoIcons.play_circle_fill
+                  : CupertinoIcons.doc_fill,
+              color: mine ? colors.textOnAccent : colors.textPrimary,
+              size: 32,
+            ),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  isVideo ? 'Видео' : 'Файл',
+                  style: TextStyle(
+                    color: mine ? colors.textOnAccent : colors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  sizeLabel,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: mine
+                        ? colors.textOnAccent.withValues(alpha: 0.75)
+                        : colors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Text(
+      text,
+      style: TextStyle(color: mine ? colors.textOnAccent : colors.textPrimary),
+    );
   }
 
   Future<void> _showMessageActions({
@@ -826,13 +1078,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     ),
                                   ),
                                 ),
-                              Text(
-                                text,
-                                style: TextStyle(
-                                  color: mine
-                                      ? colors.textOnAccent
-                                      : colors.textPrimary,
-                                ),
+                              _buildMessageBody(
+                                message: message,
+                                text: text,
+                                mine: mine,
+                                colors: colors,
                               ),
                               const SizedBox(height: 2),
                               Text(
@@ -1028,17 +1278,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          // Not wired up yet — media (M3) is on hold, this is
-                          // just the visual slot for it.
                           IconButton(
                             iconSize: 26,
                             icon: Icon(
                               CupertinoIcons.paperclip,
-                              color: colors.textSecondary.withValues(
-                                alpha: 0.6,
-                              ),
+                              color: colors.textSecondary,
                             ),
-                            onPressed: null,
+                            onPressed: () => _showAttachmentMenu(conversation),
                           ),
                           Expanded(
                             child: TextField(
