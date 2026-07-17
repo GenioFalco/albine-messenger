@@ -60,6 +60,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// `edits_message_id` for why this can't just overwrite the old ciphertext.
   ChatMessage? _editing;
 
+  /// Hidden the instant a delete is initiated, rather than waiting for the
+  /// realtime DELETE event to round-trip back through `messagesStreamProvider`
+  /// — that round-trip can lag (or, on a stale/reconnecting websocket, not
+  /// arrive promptly at all), which is why the message used to only
+  /// disappear after leaving and re-entering the chat retriggered a fresh
+  /// fetch. Never needs clearing: once the row really is gone server-side,
+  /// it just stops appearing in `items` too, so the id sitting in this set
+  /// forever is harmless.
+  final Set<String> _locallyDeletedIds = {};
+
   Future<List<ChatMessage>>? _pinnedFuture;
 
   /// Which pinned message the banner currently shows, counting back from the
@@ -142,6 +152,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (chat == null) return;
     final ids = List<String>.of(_selectedIds);
     _exitSelection();
+    setState(() => _locallyDeletedIds.addAll(ids));
     for (final id in ids) {
       await chat.deleteMessage(id);
     }
@@ -305,7 +316,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final entries = <_ChatListEntry>[];
     DateTime? lastDay;
     for (final m in items) {
-      if (m.deletedAt != null) continue;
+      if (m.deletedAt != null || _locallyDeletedIds.contains(m.id)) continue;
       final day = DateTime(
         m.createdAt.year,
         m.createdAt.month,
@@ -668,6 +679,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       destructive: true,
                       onTap: () async {
                         Navigator.of(sheetContext).pop();
+                        setState(() => _locallyDeletedIds.add(message.id));
                         await chat?.deleteMessage(message.id);
                       },
                     ),
