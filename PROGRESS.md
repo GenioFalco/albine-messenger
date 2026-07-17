@@ -184,3 +184,16 @@ Session-level working log. Updated before major stages and at least every 30–4
 
 **Next steps:**
 1. Manual E2E: tap a sent/received photo → viewer opens, pinch-zoom works, download works, close returns to the chat; same for a video chip (playback, not just the poster frame); confirm a generic file still just downloads on tap.
+
+---
+
+## 2026-07-17 (later) — attachment picker simplified, camera glyph redrawn, multi-pin cycling
+
+**Attachment picker:** the custom Фото/Видео/Файл sheet was redundant — the OS file dialog it opened afterward already lets you filter/browse, so picking twice was pure friction. Paperclip now calls `FilePicker.pickFiles()` directly (one native dialog, no app-side menu); `content_type`/mime are inferred from the picked file's extension instead of from which menu option was tapped. `_showAttachmentMenu` removed.
+
+**Camera glyph:** `CupertinoIcons.camera` still didn't read clearly as "rounded square with a circle lens" at composer icon size. Replaced with a small hand-drawn `_CameraGlyph` widget (two nested `Container`s — a rounded-rect border + a circle border centered inside) so the shape is exact and font-independent, matching Telegram's icon precisely. Paperclip also got a small circular tap-target background (`Material`/`InkWell` in a `CircleBorder`) to match the visual weight of the send button and camera glyph — user found the plain `IconButton` version "insufficiently rounded."
+
+**Multi-pin cycling:** `toggle_message_pin` always supported pinning more than one message, but the banner only ever showed the single latest one with no way to reach the others. `ChatRepository.fetchPinnedMessage()` (singular) replaced with `fetchPinnedMessages()` (plural, oldest-first); `chat_screen.dart` tracks `_pinnedIndex` and cycles backwards through older pins on repeated taps of the banner (wrapping back to the newest after the oldest), showing an "N/M" counter when there's more than one — same interaction as Telegram's pinned-message bar.
+
+**Next steps:**
+1. Manual E2E: paperclip opens the OS dialog directly (photo/video/doc all still send correctly via extension-based detection), camera glyph renders as a clean rounded-square-with-circle, pinning 2+ messages and tapping the banner repeatedly cycles through all of them and wraps around.

@@ -60,7 +60,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// `edits_message_id` for why this can't just overwrite the old ciphertext.
   ChatMessage? _editing;
 
-  Future<ChatMessage?>? _pinnedFuture;
+  Future<List<ChatMessage>>? _pinnedFuture;
+
+  /// Which pinned message the banner currently shows, counting back from the
+  /// newest (index 0). Tapping the banner scrolls to the current one, then
+  /// advances to the next older pin, wrapping back to the newest — same
+  /// cycling behavior as Telegram's pinned-message bar.
+  int _pinnedIndex = 0;
 
   /// Multi-select mode, entered via a message's "Выбрать" action.
   bool _selecting = false;
@@ -192,9 +198,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   void _refreshPinned() {
     final chat = ref.read(chatRepositoryProvider);
-    setState(
-      () => _pinnedFuture = chat?.fetchPinnedMessage(widget.conversationId),
-    );
+    setState(() {
+      _pinnedFuture = chat?.fetchPinnedMessages(widget.conversationId);
+      _pinnedIndex = 0;
+    });
   }
 
   void _startReply(ChatMessage message) {
@@ -313,68 +320,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return entries;
   }
 
-  Future<void> _showAttachmentMenu(ConversationSummary conversation) async {
-    final colors = Theme.of(context).extension<AlbineColors>()!;
-    await showBlurredModalSheet<void>(
-      context: context,
-      builder: (sheetContext) => Container(
-        margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-        decoration: BoxDecoration(
-          color: colors.background.withValues(alpha: 0.94),
-          borderRadius: BorderRadius.circular(colors.radius),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ActionSheetTile(
-                icon: CupertinoIcons.photo,
-                label: 'Фото',
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _pickAndSendMedia(
-                    conversation,
-                    fileType: FileType.image,
-                    contentType: 'image',
-                    mimeKind: 'image',
-                  );
-                },
-              ),
-              ActionSheetTile(
-                icon: CupertinoIcons.videocam,
-                label: 'Видео',
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _pickAndSendMedia(
-                    conversation,
-                    fileType: FileType.video,
-                    contentType: 'file',
-                    mimeKind: 'video',
-                  );
-                },
-              ),
-              ActionSheetTile(
-                icon: CupertinoIcons.doc,
-                label: 'Файл',
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _pickAndSendMedia(
-                    conversation,
-                    fileType: FileType.any,
-                    contentType: 'file',
-                    mimeKind: 'file',
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  static const _imageExtensions = {
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'webp',
+    'bmp',
+    'heic',
+  };
 
-  String _guessMime(String? extension, String kind) {
+  String _guessMime(String? extension) {
     switch (extension?.toLowerCase()) {
       case 'png':
         return 'image/png';
@@ -385,27 +341,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         return 'image/gif';
       case 'webp':
         return 'image/webp';
+      case 'heic':
+        return 'image/heic';
       case 'mp4':
         return 'video/mp4';
       case 'mov':
         return 'video/quicktime';
       case 'webm':
         return 'video/webm';
+      case 'mkv':
+        return 'video/x-matroska';
       case 'pdf':
         return 'application/pdf';
     }
-    if (kind == 'image') return 'image/jpeg';
-    if (kind == 'video') return 'video/mp4';
     return 'application/octet-stream';
   }
 
-  Future<void> _pickAndSendMedia(
-    ConversationSummary conversation, {
-    required FileType fileType,
-    required String contentType,
-    required String mimeKind,
-  }) async {
-    final result = await FilePicker.pickFiles(type: fileType, withData: true);
+  /// One tap on the paperclip, one native file dialog — no custom
+  /// photo/video/file picker in between (the system dialog already lets you
+  /// filter/browse, a second menu on top of it was redundant). What kind of
+  /// attachment this is gets inferred from the picked file's extension.
+  Future<void> _pickAndSendMedia(ConversationSummary conversation) async {
+    final result = await FilePicker.pickFiles(withData: true);
     final file = result?.files.singleOrNull;
     final bytes = file?.bytes;
     if (file == null || bytes == null || !mounted) return;
@@ -423,13 +380,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
 
+    final ext = file.extension?.toLowerCase();
+    final contentType = _imageExtensions.contains(ext) ? 'image' : 'file';
+
     try {
       await chat.sendMediaMessage(
         conversationId: widget.conversationId,
         recipients: recipients,
         bytes: bytes,
         contentType: contentType,
-        mimeHint: _guessMime(file.extension, mimeKind),
+        mimeHint: _guessMime(ext),
       );
     } catch (e) {
       if (mounted) {
@@ -831,7 +791,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           if (conversation == null) {
             return const Center(child: Text('Чат не найден'));
           }
-          _pinnedFuture ??= chat?.fetchPinnedMessage(widget.conversationId);
+          _pinnedFuture ??= chat?.fetchPinnedMessages(widget.conversationId);
           final messages = ref.watch(
             messagesStreamProvider(widget.conversationId),
           );
@@ -839,11 +799,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           return Column(
             children: [
               if (_pinnedFuture != null)
-                FutureBuilder<ChatMessage?>(
+                FutureBuilder<List<ChatMessage>>(
                   future: _pinnedFuture,
                   builder: (context, snapshot) {
-                    final pinned = snapshot.data;
-                    if (pinned == null) return const SizedBox.shrink();
+                    final pins = snapshot.data ?? const <ChatMessage>[];
+                    if (pins.isEmpty) return const SizedBox.shrink();
+                    // pins is oldest-first; index 0 means "show the newest".
+                    final index = _pinnedIndex % pins.length;
+                    final pinned = pins[pins.length - 1 - index];
                     final text =
                         chat?.decryptText(
                           pinned,
@@ -854,7 +817,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     return Material(
                       color: colors.background,
                       child: InkWell(
-                        onTap: () => _scrollToMessage(pinned.id),
+                        onTap: () {
+                          _scrollToMessage(pinned.id);
+                          // Tapping again cycles to the next older pin, same
+                          // as Telegram's pinned-message bar — wraps back to
+                          // the newest after the oldest.
+                          if (pins.length > 1) {
+                            setState(
+                              () => _pinnedIndex =
+                                  (_pinnedIndex + 1) % pins.length,
+                            );
+                          }
+                        },
                         child: Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 12,
@@ -881,13 +855,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Text(
-                                      'Закреплённое сообщение',
-                                      style: TextStyle(
-                                        color: colors.accent,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                      ),
+                                    Row(
+                                      children: [
+                                        Text(
+                                          'Закреплённое сообщение',
+                                          style: TextStyle(
+                                            color: colors.accent,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        if (pins.length > 1)
+                                          Text(
+                                            '  ${index + 1}/${pins.length}',
+                                            style: TextStyle(
+                                              color: colors.accent.withValues(
+                                                alpha: 0.7,
+                                              ),
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                      ],
                                     ),
                                     Text(
                                       text,
@@ -1355,13 +1343,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          IconButton(
-                            iconSize: 26,
-                            icon: Icon(
-                              CupertinoIcons.paperclip,
-                              color: colors.textSecondary,
+                          Material(
+                            color: colors.surface,
+                            shape: const CircleBorder(),
+                            clipBehavior: Clip.antiAlias,
+                            child: InkWell(
+                              onTap: () => _pickAndSendMedia(conversation),
+                              child: SizedBox(
+                                width: 42,
+                                height: 42,
+                                child: Icon(
+                                  CupertinoIcons.paperclip,
+                                  size: 22,
+                                  color: colors.textSecondary,
+                                ),
+                              ),
                             ),
-                            onPressed: () => _showAttachmentMenu(conversation),
                           ),
                           Expanded(
                             child: TextField(
@@ -1397,19 +1394,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 // isn't wired up either, this just toggles
                                 // which icon shows, same as WhatsApp/Telegram.
                                 return IconButton(
-                                  iconSize: 26,
-                                  icon: Icon(
-                                    _voiceMode
-                                        ? CupertinoIcons.mic_fill
-                                        // The filled camera glyph renders as
-                                        // a plain silhouette at this size and
-                                        // loses the lens detail — the
-                                        // outline version keeps the classic
-                                        // "body + circle" camera shape
-                                        // visible, matching Telegram's icon.
-                                        : CupertinoIcons.camera,
-                                    color: colors.textSecondary,
-                                  ),
+                                  icon: _voiceMode
+                                      ? Icon(
+                                          CupertinoIcons.mic_fill,
+                                          size: 26,
+                                          color: colors.textSecondary,
+                                        )
+                                      // Cupertino's own camera glyph doesn't
+                                      // read clearly as "rounded square with
+                                      // a circle lens" at this size — drawn
+                                      // by hand instead so the shape always
+                                      // matches Telegram's icon exactly.
+                                      : _CameraGlyph(
+                                          size: 22,
+                                          color: colors.textSecondary,
+                                        ),
                                   onPressed: () =>
                                       setState(() => _voiceMode = !_voiceMode),
                                 );
@@ -1635,6 +1634,45 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A hand-drawn "camera" glyph — rounded square body + a circle for the
+/// lens — since Cupertino's own camera icon doesn't read clearly as that
+/// shape at small sizes. Matches Telegram's camera icon.
+class _CameraGlyph extends StatelessWidget {
+  const _CameraGlyph({required this.size, required this.color});
+
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final strokeWidth = size * 0.09;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Center(
+        child: Container(
+          width: size,
+          height: size * 0.86,
+          decoration: BoxDecoration(
+            border: Border.all(color: color, width: strokeWidth),
+            borderRadius: BorderRadius.circular(size * 0.28),
+          ),
+          child: Center(
+            child: Container(
+              width: size * 0.42,
+              height: size * 0.42,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: color, width: strokeWidth),
+              ),
+            ),
+          ),
         ),
       ),
     );

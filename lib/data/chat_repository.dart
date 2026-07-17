@@ -112,7 +112,9 @@ class ChatRepository {
     await _ensureRetiredKeysLoaded();
     for (final m in messages) {
       if (m.protocol != 'signal') continue;
-      if (_sentSignalEcho.containsKey(m.id) || _signalDecryptCache.containsKey(m.id)) continue;
+      if (_sentSignalEcho.containsKey(m.id) ||
+          _signalDecryptCache.containsKey(m.id))
+        continue;
 
       if (m.senderId == _myUserId) {
         // My own message, and not in the persisted echo cache — sent from a
@@ -130,7 +132,11 @@ class ChatRepository {
       }
 
       try {
-        final plaintext = await _signal.decryptFromContact(m.senderId, m.ciphertext, messageType);
+        final plaintext = await _signal.decryptFromContact(
+          m.senderId,
+          m.ciphertext,
+          messageType,
+        );
         _signalDecryptCache[m.id] = utf8.decode(plaintext);
       } catch (_) {
         // Self-heal instead of leaving the conversation permanently broken:
@@ -157,12 +163,17 @@ class ChatRepository {
   /// records it in [_editOverrides], keyed by the message it edits. Must run
   /// after the normal prewarm passes so each edit event's own ciphertext is
   /// already decryptable via the usual [decryptText] path.
-  void _applyEditEvents(Iterable<ChatMessage> messages, {required ConversationKind kind, AppProfile? peer}) {
+  void _applyEditEvents(
+    Iterable<ChatMessage> messages, {
+    required ConversationKind kind,
+    AppProfile? peer,
+  }) {
     for (final m in messages) {
       final targetId = m.editsMessageId;
       if (targetId == null) continue;
       final text = decryptText(m, kind: kind, peer: peer);
-      if (text.startsWith('🔒')) continue; // not resolved yet or failed — leave any earlier override in place
+      if (text.startsWith('🔒'))
+        continue; // not resolved yet or failed — leave any earlier override in place
       _editOverrides[targetId] = text;
     }
   }
@@ -198,7 +209,10 @@ class ChatRepository {
     final wrapped = row?['wrapped_group_key'] as String?;
     if (wrapped == null) return null;
 
-    final key = _crypto.openSealedGroupKey(myKeyPair: _myKeyPair, sealed: base64Decode(wrapped));
+    final key = _crypto.openSealedGroupKey(
+      myKeyPair: _myKeyPair,
+      sealed: base64Decode(wrapped),
+    );
     _groupKeyCache[conversationId] = key;
     return key;
   }
@@ -215,12 +229,16 @@ class ChatRepository {
   Future<List<ConversationSummary>> fetchConversations() async {
     final memberRows = await _client
         .from('conversation_members')
-        .select('conversation_id, pinned_at, muted, hidden_at, conversations!inner(id, kind, title, created_at)')
+        .select(
+          'conversation_id, pinned_at, muted, hidden_at, conversations!inner(id, kind, title, created_at)',
+        )
         .eq('user_id', _myUserId);
 
     if (memberRows.isEmpty) return [];
 
-    final conversationIds = [for (final r in memberRows) r['conversation_id'] as String];
+    final conversationIds = [
+      for (final r in memberRows) r['conversation_id'] as String,
+    ];
 
     final otherMemberRows = await _client
         .from('conversation_members')
@@ -269,25 +287,37 @@ class ChatRepository {
     for (final r in memberRows) {
       final convo = r['conversations'] as Map<String, dynamic>;
       final id = convo['id'] as String;
-      final kind = convo['kind'] == 'group' ? ConversationKind.group : ConversationKind.direct;
+      final kind = convo['kind'] == 'group'
+          ? ConversationKind.group
+          : ConversationKind.direct;
       final others = othersByConversation[id] ?? const <AppProfile>[];
-      final peer = kind == ConversationKind.direct && others.isNotEmpty ? others.first : null;
+      final peer = kind == ConversationKind.direct && others.isNotEmpty
+          ? others.first
+          : null;
       final members = kind == ConversationKind.group ? others : null;
       final lastMessage = lastMessageByConversation[id];
       final editOfLast = latestEditByConversation[id];
-      final editApplies = editOfLast != null && lastMessage != null && editOfLast.editsMessageId == lastMessage.id;
+      final editApplies =
+          editOfLast != null &&
+          lastMessage != null &&
+          editOfLast.editsMessageId == lastMessage.id;
 
       var updatedAt = DateTime.parse(convo['created_at'] as String).toLocal();
       String? preview;
       if (lastMessage != null) {
         updatedAt = lastMessage.createdAt;
-        await _prewarmSignalDecryption([lastMessage, if (editApplies) editOfLast]);
+        await _prewarmSignalDecryption([
+          lastMessage,
+          if (editApplies) editOfLast,
+        ]);
         await _prewarmGroupKey(id);
         if (editApplies) {
           _applyEditEvents([editOfLast], kind: kind, peer: peer);
           updatedAt = editOfLast.createdAt;
         }
-        preview = lastMessage.deletedAt != null ? '🗑 Сообщение удалено' : decryptText(lastMessage, kind: kind, peer: peer);
+        preview = lastMessage.deletedAt != null
+            ? '🗑 Сообщение удалено'
+            : decryptText(lastMessage, kind: kind, peer: peer);
       }
 
       summaries.add(
@@ -299,9 +329,13 @@ class ChatRepository {
           peer: peer,
           members: members,
           previewText: preview,
-          pinnedAt: r['pinned_at'] == null ? null : DateTime.parse(r['pinned_at'] as String).toLocal(),
+          pinnedAt: r['pinned_at'] == null
+              ? null
+              : DateTime.parse(r['pinned_at'] as String).toLocal(),
           muted: r['muted'] as bool? ?? false,
-          hiddenAt: r['hidden_at'] == null ? null : DateTime.parse(r['hidden_at'] as String).toLocal(),
+          hiddenAt: r['hidden_at'] == null
+              ? null
+              : DateTime.parse(r['hidden_at'] as String).toLocal(),
         ),
       );
     }
@@ -317,7 +351,9 @@ class ChatRepository {
   Future<void> setConversationPinned(String conversationId, bool pinned) {
     return _client
         .from('conversation_members')
-        .update({'pinned_at': pinned ? DateTime.now().toUtc().toIso8601String() : null})
+        .update({
+          'pinned_at': pinned ? DateTime.now().toUtc().toIso8601String() : null,
+        })
         .eq('conversation_id', conversationId)
         .eq('user_id', _myUserId);
   }
@@ -351,16 +387,25 @@ class ChatRepository {
         .eq('user_id', _myUserId);
     final messageTrigger = _client.from('messages').stream(primaryKey: ['id']);
 
-    return Rx.merge([membershipTrigger, messageTrigger])
-        .startWith(const [])
-        .asyncMap((_) => fetchConversations());
+    return Rx.merge([
+      membershipTrigger,
+      messageTrigger,
+    ]).startWith(const []).asyncMap((_) => fetchConversations());
   }
 
-  Future<ConversationSummary?> fetchConversationSummary(String conversationId) async {
-    final row = await _client.from('conversations').select().eq('id', conversationId).maybeSingle();
+  Future<ConversationSummary?> fetchConversationSummary(
+    String conversationId,
+  ) async {
+    final row = await _client
+        .from('conversations')
+        .select()
+        .eq('id', conversationId)
+        .maybeSingle();
     if (row == null) return null;
 
-    final kind = row['kind'] == 'group' ? ConversationKind.group : ConversationKind.direct;
+    final kind = row['kind'] == 'group'
+        ? ConversationKind.group
+        : ConversationKind.direct;
     AppProfile? peer;
     List<AppProfile>? members;
     if (kind == ConversationKind.direct) {
@@ -371,7 +416,9 @@ class ChatRepository {
           .neq('user_id', _myUserId)
           .maybeSingle();
       if (memberRow != null) {
-        peer = AppProfile.fromRow(memberRow['profiles'] as Map<String, dynamic>);
+        peer = AppProfile.fromRow(
+          memberRow['profiles'] as Map<String, dynamic>,
+        );
       }
     } else {
       final memberRows = await _client
@@ -379,7 +426,10 @@ class ChatRepository {
           .select('profiles!inner(*)')
           .eq('conversation_id', conversationId)
           .neq('user_id', _myUserId);
-      members = [for (final r in memberRows) AppProfile.fromRow(r['profiles'] as Map<String, dynamic>)];
+      members = [
+        for (final r in memberRows)
+          AppProfile.fromRow(r['profiles'] as Map<String, dynamic>),
+      ];
     }
 
     return ConversationSummary(
@@ -449,31 +499,36 @@ class ChatRepository {
   /// loads the conversation summary and message stream side by side), so
   /// this stays a plain method here rather than a parameter on
   /// [watchMessages] itself.
-  List<ChatMessage> applyEditEvents(List<ChatMessage> messages, {required ConversationKind kind, AppProfile? peer}) {
+  List<ChatMessage> applyEditEvents(
+    List<ChatMessage> messages, {
+    required ConversationKind kind,
+    AppProfile? peer,
+  }) {
     _applyEditEvents(messages, kind: kind, peer: peer);
     return messages.where((m) => !m.isEditEvent).toList();
   }
 
-  /// The most recently pinned message in [conversationId], if any (v1 shows
-  /// only the latest pin as a single banner, even though multiple messages
-  /// can technically be marked pinned).
-  Future<ChatMessage?> fetchPinnedMessage(String conversationId) async {
-    final row = await _client
+  /// Every currently-pinned message in [conversationId], oldest first — the
+  /// pinned banner shows the newest (last in this list) by default and
+  /// cycles backwards through the rest on repeated taps, same as Telegram.
+  Future<List<ChatMessage>> fetchPinnedMessages(String conversationId) async {
+    final rows = await _client
         .from('messages')
         .select()
         .eq('conversation_id', conversationId)
         .not('pinned_at', 'is', null)
-        .order('pinned_at', ascending: false)
-        .limit(1)
-        .maybeSingle();
-    return row == null ? null : ChatMessage.fromRow(row);
+        .order('pinned_at', ascending: true);
+    return rows.map(ChatMessage.fromRow).toList();
   }
 
   /// Any conversation member may pin/unpin — enforced server-side by the
   /// `toggle_message_pin` RPC, which only ever touches `pinned_at` (a
   /// non-sender could not use this to alter someone else's message content).
   Future<void> toggleMessagePin(String messageId, bool pin) {
-    return _client.rpc('toggle_message_pin', params: {'p_message_id': messageId, 'p_pin': pin});
+    return _client.rpc(
+      'toggle_message_pin',
+      params: {'p_message_id': messageId, 'p_pin': pin},
+    );
   }
 
   /// Hard-deletes the row (sender only, enforced by RLS — see
@@ -483,7 +538,11 @@ class ChatRepository {
   /// scrubbed of ciphertext) is still recognized and skipped, not shown as
   /// "not yet decrypted".
   Future<void> deleteMessage(String messageId) {
-    return _client.from('messages').delete().eq('id', messageId).eq('sender_id', _myUserId);
+    return _client
+        .from('messages')
+        .delete()
+        .eq('id', messageId)
+        .eq('sender_id', _myUserId);
   }
 
   /// [replyToId]/[editsMessageId]/[forwardedFromSenderId] are all optional
@@ -531,9 +590,14 @@ class ChatRepository {
     }
     if (replyToId != null) row['reply_to_id'] = replyToId;
     if (editsMessageId != null) row['edits_message_id'] = editsMessageId;
-    if (forwardedFromSenderId != null) row['forwarded_from_sender_id'] = forwardedFromSenderId;
+    if (forwardedFromSenderId != null)
+      row['forwarded_from_sender_id'] = forwardedFromSenderId;
 
-    final inserted = await _client.from('messages').insert(row).select('id').single();
+    final inserted = await _client
+        .from('messages')
+        .insert(row)
+        .select('id')
+        .single();
     if (signalMessage != null) {
       await _rememberSentEcho(inserted['id'] as String, text);
     }
@@ -553,7 +617,9 @@ class ChatRepository {
   }) async {
     final groupKey = await _tryGroupKeyFor(conversationId);
     if (groupKey == null) {
-      throw StateError('No group key cached or published for conversation $conversationId');
+      throw StateError(
+        'No group key cached or published for conversation $conversationId',
+      );
     }
     final payload = _crypto.encryptGroupMessage(
       groupKey: groupKey,
@@ -572,7 +638,8 @@ class ChatRepository {
       // uses the group AEAD scheme, not the legacy 1:1 crypto_box.
       if (replyToId != null) 'reply_to_id': replyToId,
       if (editsMessageId != null) 'edits_message_id': editsMessageId,
-      if (forwardedFromSenderId != null) 'forwarded_from_sender_id': forwardedFromSenderId,
+      if (forwardedFromSenderId != null)
+        'forwarded_from_sender_id': forwardedFromSenderId,
     });
     if (editsMessageId != null) _editOverrides[editsMessageId] = text;
   }
@@ -632,11 +699,18 @@ class ChatRepository {
         plaintext: bytes,
       );
       final path = '$conversationId/${const Uuid().v4()}';
-      await _client.storage.from('media').uploadBinary(path, payload.ciphertext);
+      await _client.storage
+          .from('media')
+          .uploadBinary(path, payload.ciphertext);
 
       final wrappedByUser = <String, String>{
         for (final p in recipients)
-          p.id: base64Encode(_crypto.sealGroupKeyForMember(memberPublicKey: p.identityPubkey, groupKey: key)),
+          p.id: base64Encode(
+            _crypto.sealGroupKeyForMember(
+              memberPublicKey: p.identityPubkey,
+              groupKey: key,
+            ),
+          ),
       };
 
       await _client.from('messages').insert({
@@ -674,7 +748,10 @@ class ChatRepository {
     if (myWrapped == null) return null;
 
     final ciphertext = await _client.storage.from('media').download(path);
-    final key = _crypto.openSealedGroupKey(myKeyPair: _myKeyPair, sealed: base64Decode(myWrapped));
+    final key = _crypto.openSealedGroupKey(
+      myKeyPair: _myKeyPair,
+      sealed: base64Decode(myWrapped),
+    );
     try {
       final bytes = _crypto.decryptGroupMessage(
         groupKey: key,
@@ -699,7 +776,11 @@ class ChatRepository {
   /// For `protocol: 'crypto_box'`, decryption itself is synchronous and
   /// works for messages I sent too — the shared secret is symmetric between
   /// the two parties regardless of direction.
-  String decryptText(ChatMessage message, {required ConversationKind kind, AppProfile? peer}) {
+  String decryptText(
+    ChatMessage message, {
+    required ConversationKind kind,
+    AppProfile? peer,
+  }) {
     if (message.deletedAt != null) return '🗑 Сообщение удалено';
     final override = _editOverrides[message.id];
     if (override != null) return override;
@@ -715,13 +796,18 @@ class ChatRepository {
     if (kind == ConversationKind.group) {
       final groupKey = _groupKeyCache[message.conversationId];
       if (groupKey == null) {
-        return _groupKeyFailed.contains(message.conversationId) ? '🔒 Не удалось расшифровать' : '🔒 Расшифровка…';
+        return _groupKeyFailed.contains(message.conversationId)
+            ? '🔒 Не удалось расшифровать'
+            : '🔒 Расшифровка…';
       }
       try {
         final plaintext = _crypto.decryptGroupMessage(
           groupKey: groupKey,
           conversationId: message.conversationId,
-          payload: EncryptedPayload(ciphertext: message.ciphertext, nonce: message.nonce ?? Uint8List(0)),
+          payload: EncryptedPayload(
+            ciphertext: message.ciphertext,
+            nonce: message.nonce ?? Uint8List(0),
+          ),
         );
         return utf8.decode(plaintext);
       } catch (_) {
@@ -739,7 +825,10 @@ class ChatRepository {
       return _signalDecryptCache[message.id] ?? '🔒 Расшифровка…';
     }
 
-    final payload = EncryptedPayload(ciphertext: message.ciphertext, nonce: message.nonce ?? Uint8List(0));
+    final payload = EncryptedPayload(
+      ciphertext: message.ciphertext,
+      nonce: message.nonce ?? Uint8List(0),
+    );
     try {
       final plaintext = _crypto.decryptDirectMessage(
         mySecretKey: _myKeyPair.secretKey,
