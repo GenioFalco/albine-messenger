@@ -913,7 +913,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   icon: Icon(
                                     _voiceMode
                                         ? CupertinoIcons.mic_fill
-                                        : CupertinoIcons.camera_fill,
+                                        // The filled camera glyph renders as
+                                        // a plain silhouette at this size and
+                                        // loses the lens detail — the
+                                        // outline version keeps the classic
+                                        // "body + circle" camera shape
+                                        // visible, matching Telegram's icon.
+                                        : CupertinoIcons.camera,
                                     color: colors.textSecondary,
                                   ),
                                   onPressed: () =>
