@@ -62,11 +62,47 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _selecting = false;
   final Set<String> _selectedIds = {};
 
+  /// One stable key per rendered message, so [_scrollToMessage] can jump to
+  /// an arbitrary earlier message (tapping a reply quote or the pinned
+  /// banner) via `Scrollable.ensureVisible` regardless of item heights.
+  /// `ListView.builder` recycles widgets, so these need to survive across
+  /// rebuilds rather than being created fresh in itemBuilder each time.
+  final Map<String, GlobalKey> _messageKeys = {};
+
+  /// Briefly highlighted after a scroll-to-message jump, so landing on the
+  /// target is obvious (same as Telegram) — cleared automatically.
+  String? _highlightedMessageId;
+
+  /// Suppresses the "jump to bottom on new message" behavior for the brief
+  /// window right after a deliberate scroll-to-message, so the stream
+  /// re-emitting (e.g. from a realtime update) doesn't immediately yank the
+  /// view back to the bottom.
+  bool _suppressAutoScroll = false;
+  int _lastEntryCount = -1;
+
   @override
   void dispose() {
     _textController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _scrollToMessage(String id) {
+    final ctx = _messageKeys[id]?.currentContext;
+    if (ctx == null) return; // not currently rendered — no pagination yet
+    _suppressAutoScroll = true;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+      alignment: 0.5,
+    ).then((_) {
+      _suppressAutoScroll = false;
+    });
+    setState(() => _highlightedMessageId = id);
+    Future.delayed(const Duration(milliseconds: 1000), () {
+      if (mounted) setState(() => _highlightedMessageId = null);
+    });
   }
 
   void _enterSelection(String messageId) {
@@ -278,12 +314,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     required String decryptedText,
     required ConversationSummary conversation,
     required bool mine,
+    Rect? anchorRect,
   }) async {
     final colors = Theme.of(context).extension<AlbineColors>()!;
     final chat = ref.read(chatRepositoryProvider);
     final isPinned = message.pinnedAt != null;
     await showBlurredModalSheet<void>(
       context: context,
+      anchorRect: anchorRect,
+      anchorAlignRight: mine,
       builder: (sheetContext) => Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: mine
@@ -527,43 +566,74 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           peer: conversation.peer,
                         ) ??
                         '...';
-                    return Container(
-                      color: colors.surface,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.push_pin,
-                            size: 16,
-                            color: colors.textSecondary,
+                    return Material(
+                      color: colors.background,
+                      child: InkWell(
+                        onTap: () => _scrollToMessage(pinned.id),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              text,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: colors.textPrimary,
-                                fontSize: 13,
+                          decoration: BoxDecoration(
+                            border: Border(
+                              bottom: BorderSide(color: colors.border),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 3,
+                                height: 32,
+                                margin: const EdgeInsets.only(right: 10),
+                                decoration: BoxDecoration(
+                                  color: colors.accent,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
                               ),
-                            ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'Закреплённое сообщение',
+                                      style: TextStyle(
+                                        color: colors.accent,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    Text(
+                                      text,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: colors.textPrimary,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              IconButton(
+                                icon: Icon(
+                                  CupertinoIcons.xmark,
+                                  size: 16,
+                                  color: colors.textSecondary,
+                                ),
+                                onPressed: () async {
+                                  await chat?.toggleMessagePin(
+                                    pinned.id,
+                                    false,
+                                  );
+                                  _refreshPinned();
+                                },
+                              ),
+                            ],
                           ),
-                          IconButton(
-                            icon: Icon(
-                              Icons.close,
-                              size: 16,
-                              color: colors.textSecondary,
-                            ),
-                            onPressed: () async {
-                              await chat?.toggleMessagePin(pinned.id, false);
-                              _refreshPinned();
-                            },
-                          ),
-                        ],
+                        ),
                       ),
                     );
                   },
@@ -583,13 +653,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ) ??
                         rawItems;
                     final entries = _buildListEntries(items);
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (_scrollController.hasClients) {
-                        _scrollController.jumpTo(
-                          _scrollController.position.maxScrollExtent,
-                        );
-                      }
-                    });
+                    // Only jump to the bottom when the list actually grew
+                    // (a new message arrived) and nothing else is mid-scroll
+                    // — otherwise a scroll-to-message jump (reply quote,
+                    // pinned banner) gets immediately undone the next time
+                    // the stream re-emits (e.g. a pin/mute toggle elsewhere
+                    // touches conversation_members and retriggers this).
+                    final grew = entries.length > _lastEntryCount;
+                    _lastEntryCount = entries.length;
+                    if (grew && !_suppressAutoScroll) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (_scrollController.hasClients) {
+                          _scrollController.jumpTo(
+                            _scrollController.position.maxScrollExtent,
+                          );
+                        }
+                      });
+                    }
                     return ListView.builder(
                       controller: _scrollController,
                       padding: const EdgeInsets.symmetric(
@@ -650,133 +730,218 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 peer: conversation.peer,
                               );
                         final selected = _selectedIds.contains(message.id);
+                        final highlighted = _highlightedMessageId == message.id;
+                        // Who's writing is otherwise only visible via bubble
+                        // color/side — fine for a 1:1 chat, ambiguous once a
+                        // group has 3+ people. Never shown for my own
+                        // messages (obviously mine already).
+                        final senderLabel =
+                            conversation.kind == ConversationKind.group && !mine
+                            ? _senderName(message.senderId, conversation, myId)
+                            : null;
+                        final messageKey = _messageKeys.putIfAbsent(
+                          message.id,
+                          () => GlobalKey(),
+                        );
 
-                        final bubble = GestureDetector(
-                          onTap: _selecting
-                              ? () => _toggleSelected(message.id)
-                              : null,
-                          onLongPress: _selecting
-                              ? null
-                              : () => _showMessageActions(
-                                  message: message,
-                                  decryptedText: text,
-                                  conversation: conversation,
-                                  mine: mine,
+                        final bubbleCore = Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: mine ? colors.accent : colors.surface,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (message.forwardedFromSenderId != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Text(
+                                    'Переслано от '
+                                    '${_senderName(message.forwardedFromSenderId!, conversation, myId)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontStyle: FontStyle.italic,
+                                      color: mine
+                                          ? colors.textOnAccent
+                                          : colors.textSecondary,
+                                    ),
+                                  ),
                                 ),
-                          child: Align(
-                            alignment: mine
-                                ? Alignment.centerRight
-                                : Alignment.centerLeft,
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxWidth:
-                                    MediaQuery.of(context).size.width * 0.75,
-                              ),
-                              child: Container(
-                                margin: const EdgeInsets.symmetric(vertical: 4),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 10,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: mine ? colors.accent : colors.surface,
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (message.forwardedFromSenderId != null)
-                                      Padding(
-                                        padding: const EdgeInsets.only(
-                                          bottom: 4,
-                                        ),
-                                        child: Text(
-                                          'Переслано от '
-                                          '${_senderName(message.forwardedFromSenderId!, conversation, myId)}',
+                              if (replyText != null)
+                                GestureDetector(
+                                  onTap: _selecting
+                                      ? null
+                                      : () => _scrollToMessage(replyTarget!.id),
+                                  child: Container(
+                                    margin: const EdgeInsets.only(bottom: 6),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          (mine
+                                                  ? colors.textOnAccent
+                                                  : colors.textPrimary)
+                                              .withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          _senderName(
+                                            replyTarget!.senderId,
+                                            conversation,
+                                            myId,
+                                          ),
                                           style: TextStyle(
                                             fontSize: 12,
-                                            fontStyle: FontStyle.italic,
+                                            fontWeight: FontWeight.w600,
+                                            color: mine
+                                                ? colors.textOnAccent
+                                                : colors.textPrimary,
+                                          ),
+                                        ),
+                                        Text(
+                                          replyText,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 12,
                                             color: mine
                                                 ? colors.textOnAccent
                                                 : colors.textSecondary,
                                           ),
                                         ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              Text(
+                                text,
+                                style: TextStyle(
+                                  color: mine
+                                      ? colors.textOnAccent
+                                      : colors.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                formatMessageTime(message.createdAt),
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: mine
+                                      ? colors.textOnAccent.withValues(
+                                          alpha: 0.75,
+                                        )
+                                      : colors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        final bubbleWithSender = senderLabel == null
+                            ? bubbleCore
+                            : Row(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                      right: 6,
+                                      bottom: 2,
+                                    ),
+                                    child: CircleAvatar(
+                                      radius: 14,
+                                      backgroundColor: colors.surfaceStrong,
+                                      child: Text(
+                                        senderLabel.isNotEmpty
+                                            ? senderLabel[0].toUpperCase()
+                                            : '?',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: colors.textPrimary,
+                                        ),
                                       ),
-                                    if (replyText != null)
-                                      Container(
-                                        margin: const EdgeInsets.only(
-                                          bottom: 6,
-                                        ),
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 6,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color:
-                                              (mine
-                                                      ? colors.textOnAccent
-                                                      : colors.textPrimary)
-                                                  .withValues(alpha: 0.08),
-                                          borderRadius: BorderRadius.circular(
-                                            8,
+                                    ),
+                                  ),
+                                  Flexible(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            left: 12,
+                                            bottom: 2,
+                                          ),
+                                          child: Text(
+                                            senderLabel,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: colors.accent,
+                                            ),
                                           ),
                                         ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text(
-                                              _senderName(
-                                                replyTarget!.senderId,
-                                                conversation,
-                                                myId,
-                                              ),
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                                color: mine
-                                                    ? colors.textOnAccent
-                                                    : colors.textPrimary,
-                                              ),
-                                            ),
-                                            Text(
-                                              replyText,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: mine
-                                                    ? colors.textOnAccent
-                                                    : colors.textSecondary,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    Text(
-                                      text,
-                                      style: TextStyle(
-                                        color: mine
-                                            ? colors.textOnAccent
-                                            : colors.textPrimary,
-                                      ),
+                                        bubbleCore,
+                                      ],
                                     ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      formatMessageTime(message.createdAt),
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: mine
-                                            ? colors.textOnAccent.withValues(
-                                                alpha: 0.75,
-                                              )
-                                            : colors.textSecondary,
-                                      ),
-                                    ),
-                                  ],
+                                  ),
+                                ],
+                              );
+
+                        final bubble = GestureDetector(
+                          key: messageKey,
+                          onTap: _selecting
+                              ? () => _toggleSelected(message.id)
+                              : null,
+                          onLongPress: _selecting
+                              ? null
+                              : () {
+                                  final box =
+                                      messageKey.currentContext
+                                              ?.findRenderObject()
+                                          as RenderBox?;
+                                  final rect = box != null
+                                      ? box.localToGlobal(Offset.zero) &
+                                            box.size
+                                      : null;
+                                  _showMessageActions(
+                                    message: message,
+                                    decryptedText: text,
+                                    conversation: conversation,
+                                    mine: mine,
+                                    anchorRect: rect,
+                                  );
+                                },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 300),
+                            color: highlighted
+                                ? colors.accent.withValues(alpha: 0.15)
+                                : Colors.transparent,
+                            child: Align(
+                              alignment: mine
+                                  ? Alignment.centerRight
+                                  : Alignment.centerLeft,
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth:
+                                      MediaQuery.of(context).size.width * 0.75,
                                 ),
+                                child: bubbleWithSender,
                               ),
                             ),
                           ),

@@ -24,6 +24,13 @@ Future<T?> showBlurredModalSheet<T>({
   required BuildContext context,
   required WidgetBuilder builder,
   double maxWidth = 300,
+  // When set (the message action sheet passes the long-pressed bubble's own
+  // on-screen rect), the card floats right next to that message — below it
+  // if there's room, above it otherwise — instead of always bottom-center.
+  // [anchorAlignRight] should match the message's own side (true for "mine"
+  // bubbles) so the card lines up with it horizontally too.
+  Rect? anchorRect,
+  bool anchorAlignRight = false,
 }) {
   // Mirrors main_shell.dart's `_wideBreakpoint` (900) — below it we're the
   // single-column mobile layout.
@@ -36,22 +43,51 @@ Future<T?> showBlurredModalSheet<T>({
     barrierColor: Colors.transparent,
     transitionDuration: const Duration(milliseconds: 180),
     pageBuilder: (dialogContext, animation, secondaryAnimation) {
-      return SafeArea(
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxWidth),
-              // showModalBottomSheet wraps its content in a Material for
-              // you; showGeneralDialog doesn't — without this, any ListTile
-              // /InkWell inside builder() (every action sheet has one)
-              // throws "No Material widget found", which a release build
-              // renders as a plain gray box instead of an error message.
-              child: Material(type: MaterialType.transparency, child: builder(dialogContext)),
-            ),
-          ),
+      // showModalBottomSheet wraps its content in a Material for you;
+      // showGeneralDialog doesn't — without this, any ListTile/InkWell
+      // inside builder() (every action sheet has one) throws "No Material
+      // widget found", which a release build renders as a plain gray box
+      // instead of an error message.
+      final content = ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: Material(
+          type: MaterialType.transparency,
+          child: builder(dialogContext),
         ),
+      );
+
+      if (anchorRect == null) {
+        return SafeArea(
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(padding: const EdgeInsets.all(12), child: content),
+          ),
+        );
+      }
+
+      final screenSize = MediaQuery.sizeOf(dialogContext);
+      final viewPadding = MediaQuery.paddingOf(dialogContext);
+      const gap = 8.0;
+      // Rough space budget for the card — without knowing its real height
+      // ahead of time (it depends on the message text + how many actions
+      // apply), this is just a "does it comfortably fit below" heuristic;
+      // worst case it still ends up on whichever side has more room.
+      const wantsSpace = 320.0;
+      final spaceBelow =
+          screenSize.height - anchorRect.bottom - viewPadding.bottom - gap;
+      final spaceAbove = anchorRect.top - viewPadding.top - gap;
+      final showBelow = spaceBelow >= wantsSpace || spaceBelow >= spaceAbove;
+
+      return Stack(
+        children: [
+          Positioned(
+            top: showBelow ? anchorRect.bottom + gap : null,
+            bottom: showBelow ? null : screenSize.height - anchorRect.top + gap,
+            left: anchorAlignRight ? null : 12,
+            right: anchorAlignRight ? 12 : null,
+            child: content,
+          ),
+        ],
       );
     },
     transitionBuilder: (context, animation, secondaryAnimation, child) {
@@ -72,12 +108,17 @@ Future<T?> showBlurredModalSheet<T>({
               child: blurred
                   ? BackdropFilter(
                       filter: ImageFilter.blur(sigmaX: 6 * t, sigmaY: 6 * t),
-                      child: ColoredBox(color: Colors.black.withValues(alpha: 0.12 * t)),
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: 0.12 * t),
+                      ),
                     )
                   : const SizedBox.expand(),
             ),
           ),
-          Opacity(opacity: t, child: Transform.scale(scale: 0.94 + 0.06 * t, child: child)),
+          Opacity(
+            opacity: t,
+            child: Transform.scale(scale: 0.94 + 0.06 * t, child: child),
+          ),
         ],
       );
     },
