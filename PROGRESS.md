@@ -177,3 +177,10 @@ Session-level working log. Updated before major stages and at least every 30–4
 **Next steps:**
 1. Apply `0008_media_storage.sql` to the live Supabase project (along with the still-outstanding `0005`/`0006`/`0007`).
 2. Manual E2E: send a photo/video/file in both a direct and a group chat, confirm the image renders inline, confirm downloading a file/video produces a working local file, confirm existing text messages are unaffected.
+
+**Follow-up — confirmed working, but photo/video needed a real viewer.** User applied `0008` and media started sending, but reported photos/videos were rendered exactly like a text message (stuck in the same padded, colored chat bubble) instead of opening as their own thing — every other messenger opens a tap target with a dedicated viewer (close + download), not an inline-forever thumbnail. Files were fine as-is (a chip that downloads directly).
+- Added `video_player` (pulls in `video_player_web` automatically) and a new `_MediaViewerDialog` — a full-screen black backdrop with the photo pinch-zoomable (`InteractiveViewer`) or the video playing (via a `Blob` URL fed to `VideoPlayerController.networkUrl`, tap to pause/resume), a close (✕) button and a download button, both top corners. Tapping an image thumbnail or a video chip opens this; tapping a generic file still downloads immediately (no viewer makes sense for an arbitrary file type) — matches what was explicitly asked for.
+- Restyled the image bubble itself: no more colored background/padding around it (`isImage` branch: `padding: EdgeInsets.zero`, `color: Colors.transparent`) — the photo now fills the rounded shape edge-to-edge, with the timestamp as a small dark overlay badge on the image's corner instead of separate text on a colored strip below it.
+
+**Next steps:**
+1. Manual E2E: tap a sent/received photo → viewer opens, pinch-zoom works, download works, close returns to the chat; same for a video chip (playback, not just the poster frame); confirm a generic file still just downloads on tap.

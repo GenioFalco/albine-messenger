@@ -45,6 +45,7 @@ dependencies:
   flutter_slidable: ^4.0.3
   file_picker: ^11.0.2
   uuid: ^4.6.0
+  video_player: ^2.13.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

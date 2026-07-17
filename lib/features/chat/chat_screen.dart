@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../core/errors/humanize_error.dart';
 import '../../core/format.dart';
@@ -474,6 +475,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     html.Url.revokeObjectUrl(url);
   }
 
+  Future<void> _openMediaViewer(ChatMessage message) async {
+    final chat = ref.read(chatRepositoryProvider);
+    final bytes = await chat?.fetchAndDecryptMedia(message);
+    if (bytes == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Не удалось загрузить')));
+      }
+      return;
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black,
+      builder: (dialogContext) => _MediaViewerDialog(
+        message: message,
+        bytes: bytes,
+        onDownload: () => _downloadMedia(message),
+      ),
+    );
+  }
+
   Widget _buildMessageBody({
     required ChatMessage message,
     required String text,
@@ -501,9 +525,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             );
           }
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: Image.memory(bytes, fit: BoxFit.cover, width: 220),
+          // Tapping opens the full-screen viewer (close + download) instead
+          // of just sitting inline forever — matches every other messenger.
+          return GestureDetector(
+            onTap: () => _openMediaViewer(message),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Image.memory(bytes, fit: BoxFit.cover, width: 220),
+            ),
           );
         },
       );
@@ -515,7 +544,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ? _formatFileSize(message.mediaSizeBytes!)
           : '';
       return InkWell(
-        onTap: () => _downloadMedia(message),
+        // A video opens the same full-screen viewer (now with playback);
+        // a generic file just downloads straight away — no viewer makes
+        // sense for an arbitrary file type.
+        onTap: () =>
+            isVideo ? _openMediaViewer(message) : _downloadMedia(message),
         borderRadius: BorderRadius.circular(10),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -996,14 +1029,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           () => GlobalKey(),
                         );
 
+                        // A photo reads as a photo (edge-to-edge, rounded
+                        // corners, time stamped directly on the image) —
+                        // not as text with a colored bubble wrapped around
+                        // it, same as every other messenger.
+                        final isImage = message.contentType == 'image';
+                        final messageBody = _buildMessageBody(
+                          message: message,
+                          text: text,
+                          mine: mine,
+                          colors: colors,
+                        );
+
                         final bubbleCore = Container(
                           margin: const EdgeInsets.symmetric(vertical: 4),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
+                          padding: isImage
+                              ? EdgeInsets.zero
+                              : const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
                           decoration: BoxDecoration(
-                            color: mine ? colors.accent : colors.surface,
+                            color: isImage
+                                ? Colors.transparent
+                                : (mine ? colors.accent : colors.surface),
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: Column(
@@ -1078,24 +1127,52 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     ),
                                   ),
                                 ),
-                              _buildMessageBody(
-                                message: message,
-                                text: text,
-                                mine: mine,
-                                colors: colors,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                formatMessageTime(message.createdAt),
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: mine
-                                      ? colors.textOnAccent.withValues(
-                                          alpha: 0.75,
-                                        )
-                                      : colors.textSecondary,
+                              if (isImage)
+                                Stack(
+                                  children: [
+                                    messageBody,
+                                    Positioned(
+                                      right: 6,
+                                      bottom: 6,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.45,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          formatMessageTime(message.createdAt),
+                                          style: const TextStyle(
+                                            fontSize: 10,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              else ...[
+                                messageBody,
+                                const SizedBox(height: 2),
+                                Text(
+                                  formatMessageTime(message.createdAt),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: mine
+                                        ? colors.textOnAccent.withValues(
+                                            alpha: 0.75,
+                                          )
+                                        : colors.textSecondary,
+                                  ),
                                 ),
-                              ),
+                              ],
                             ],
                           ),
                         );
@@ -1447,6 +1524,117 @@ class _ForwardPickerSheet extends ConsumerWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-screen viewer for a tapped photo/video — a black backdrop, the media
+/// centered (pinch-zoomable for photos, playable for video via a blob URL),
+/// a close button, and a download button. Matches what every other
+/// messenger does with an inline attachment instead of leaving it stuck in
+/// the chat bubble forever.
+class _MediaViewerDialog extends StatefulWidget {
+  const _MediaViewerDialog({
+    required this.message,
+    required this.bytes,
+    required this.onDownload,
+  });
+
+  final ChatMessage message;
+  final Uint8List bytes;
+  final VoidCallback onDownload;
+
+  @override
+  State<_MediaViewerDialog> createState() => _MediaViewerDialogState();
+}
+
+class _MediaViewerDialogState extends State<_MediaViewerDialog> {
+  VideoPlayerController? _videoController;
+  String? _blobUrl;
+
+  bool get _isVideo =>
+      widget.message.mediaMimeHint?.startsWith('video/') ?? false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isVideo) {
+      final blob = html.Blob([widget.bytes], widget.message.mediaMimeHint);
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      _blobUrl = url;
+      _videoController = VideoPlayerController.networkUrl(Uri.parse(url))
+        ..initialize()
+            .then((_) {
+              if (mounted) setState(() {});
+            })
+            .catchError((_) {})
+        ..setLooping(false);
+      _videoController?.play();
+    }
+  }
+
+  @override
+  void dispose() {
+    _videoController?.dispose();
+    final url = _blobUrl;
+    if (url != null) html.Url.revokeObjectUrl(url);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _videoController;
+    return Dialog.fullscreen(
+      backgroundColor: Colors.black,
+      child: SafeArea(
+        child: Stack(
+          children: [
+            Center(
+              child: _isVideo
+                  ? (controller != null && controller.value.isInitialized
+                        ? AspectRatio(
+                            aspectRatio: controller.value.aspectRatio,
+                            child: GestureDetector(
+                              onTap: () => setState(() {
+                                controller.value.isPlaying
+                                    ? controller.pause()
+                                    : controller.play();
+                              }),
+                              child: VideoPlayer(controller),
+                            ),
+                          )
+                        : const CircularProgressIndicator(color: Colors.white))
+                  : InteractiveViewer(
+                      child: Image.memory(widget.bytes, fit: BoxFit.contain),
+                    ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                icon: const Icon(
+                  CupertinoIcons.xmark_circle_fill,
+                  color: Colors.white,
+                  size: 32,
+                ),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              left: 8,
+              child: IconButton(
+                icon: const Icon(
+                  CupertinoIcons.arrow_down_circle_fill,
+                  color: Colors.white,
+                  size: 32,
+                ),
+                onPressed: widget.onDownload,
+              ),
+            ),
+          ],
         ),
       ),
     );
