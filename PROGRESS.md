@@ -141,6 +141,11 @@ Session-level working log. Updated before major stages and at least every 30–4
 
 **Same-day follow-up:** composer still sat flush against the screen's bottom edge and the mic/camera/paperclip icons looked thin/generic next to Telegram's — bumped the bottom padding (14 → 24) so the bar clears the edge with real breathing room, and swapped `CupertinoIcons.mic`/`videocam` for the bolder filled `mic_fill`/`camera_fill`, with consistent 26px sizing across paperclip/mic/camera.
 
+**Follow-up 6 — camera icon, and two real bugs from live testing.**
+- Camera toggle icon switched from `camera_fill` to outline `camera` — the filled glyph loses the lens-circle detail at this size and just reads as a blob; the outline keeps the recognizable "body + lens" camera shape.
+- **Bug:** deleting a conversation's most recent message left the chat-list preview stuck on "🗑 Сообщение удалено" instead of falling back to whatever real message precedes it — `fetchConversations()`'s last-message picker only skipped edit-event rows, not deleted ones. Fixed by skipping `deletedAt != null` there too.
+- **Change:** messages are now hard-deleted (`deleteMessage()` calls `.delete()`, not a soft-delete update) — there's no reason for a deleted message's row to linger in the database at all. New `supabase/migrations/0007_hard_delete_messages.sql` adds the DELETE RLS policy (`messages` only had UPDATE before, for the old soft-delete/edit approach) and one-off cleans up any rows already soft-deleted under the old scheme. `ChatMessage.deletedAt`/the `decryptText`/`_buildListEntries` skip-if-deleted checks stay in place defensively (a stale cached client build could still soft-delete for a while after this deploys), just no new row should ever get `deleted_at` set going forward.
+
 **Next steps:**
-1. Apply `0005`/`0006` migrations to the live Supabase project (still outstanding).
-2. Manual E2E: blurred sheets render correctly, multi-select forward/delete across a direct and a group chat, icons render (no missing-glyph boxes), message preview shows above the action sheet, deleted messages vanish cleanly, composer buttons behave as described.
+1. Apply `0005`/`0006`/`0007` migrations to the live Supabase project (still outstanding).
+2. Manual E2E: blurred sheets render correctly, multi-select forward/delete across a direct and a group chat, icons render (no missing-glyph boxes), message preview shows above the action sheet, deleted messages vanish cleanly (and the chat-list preview recovers correctly), composer buttons behave as described.

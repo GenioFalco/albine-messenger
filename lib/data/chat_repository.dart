@@ -245,18 +245,21 @@ class ChatRepository {
         .inFilter('conversation_id', conversationIds)
         .order('created_at', ascending: false);
 
-    // Rows are already newest-first, so the first non-edit-event row seen
-    // per conversation is the latest real message; the first edit-event row
-    // seen is the most recent edit *of any message* in that conversation
-    // (only relevant for the preview if it targets that latest message —
-    // editing an older message shouldn't resurrect/reorder the preview).
+    // Rows are already newest-first, so the first non-edit-event,
+    // non-deleted row seen per conversation is the latest real message; the
+    // first edit-event row seen is the most recent edit *of any message* in
+    // that conversation (only relevant for the preview if it targets that
+    // latest message — editing an older message shouldn't resurrect/reorder
+    // the preview). Deleted messages are skipped entirely here too — a
+    // deleted message being the most recent one shouldn't make the preview
+    // show "Сообщение удалено" instead of whatever real message precedes it.
     final lastMessageByConversation = <String, ChatMessage>{};
     final latestEditByConversation = <String, ChatMessage>{};
     for (final row in messageRows) {
       final msg = ChatMessage.fromRow(row);
       if (msg.isEditEvent) {
         latestEditByConversation.putIfAbsent(msg.conversationId, () => msg);
-      } else {
+      } else if (msg.deletedAt == null) {
         lastMessageByConversation.putIfAbsent(msg.conversationId, () => msg);
       }
     }
@@ -472,15 +475,14 @@ class ChatRepository {
     return _client.rpc('toggle_message_pin', params: {'p_message_id': messageId, 'p_pin': pin});
   }
 
-  /// Soft-deletes (sender only, enforced by RLS) and scrubs the ciphertext
-  /// server-side — a deleted message shouldn't linger as recoverable content
-  /// just because the flag is flipped.
+  /// Hard-deletes the row (sender only, enforced by RLS — see
+  /// `0007_hard_delete_messages.sql`). A deleted message has no reason to
+  /// linger in the database at all; `messages.deleted_at` stays in the
+  /// schema only so any row soft-deleted before this change (already
+  /// scrubbed of ciphertext) is still recognized and skipped, not shown as
+  /// "not yet decrypted".
   Future<void> deleteMessage(String messageId) {
-    return _client
-        .from('messages')
-        .update({'deleted_at': DateTime.now().toUtc().toIso8601String(), 'ciphertext': '', 'nonce': null})
-        .eq('id', messageId)
-        .eq('sender_id', _myUserId);
+    return _client.from('messages').delete().eq('id', messageId).eq('sender_id', _myUserId);
   }
 
   /// [replyToId]/[editsMessageId]/[forwardedFromSenderId] are all optional
