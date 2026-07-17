@@ -419,6 +419,36 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} МБ';
   }
 
+  /// Extension to give a downloaded file so it actually opens/previews as
+  /// what it is — without this, the browser saved everything under a bare
+  /// "file"/"video" name with no extension at all, so the OS had nothing to
+  /// associate it with and it just looked like a generic, nameless blob.
+  String _extensionForMime(String mime) {
+    switch (mime) {
+      case 'image/png':
+        return 'png';
+      case 'image/jpeg':
+        return 'jpg';
+      case 'image/gif':
+        return 'gif';
+      case 'image/webp':
+        return 'webp';
+      case 'image/heic':
+        return 'heic';
+      case 'video/mp4':
+        return 'mp4';
+      case 'video/quicktime':
+        return 'mov';
+      case 'video/webm':
+        return 'webm';
+      case 'video/x-matroska':
+        return 'mkv';
+      case 'application/pdf':
+        return 'pdf';
+    }
+    return 'bin';
+  }
+
   Future<void> _downloadMedia(ChatMessage message) async {
     final chat = ref.read(chatRepositoryProvider);
     final bytes = await chat?.fetchAndDecryptMedia(message);
@@ -430,18 +460,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
       return;
     }
+    final mime = message.mediaMimeHint ?? 'application/octet-stream';
+    final baseName = mime.startsWith('image/')
+        ? 'photo'
+        : (mime.startsWith('video/') ? 'video' : 'file');
+    final filename = '$baseName.${_extensionForMime(mime)}';
+
     // Flutter Web has no filesystem access — this is the standard trick for
     // triggering a browser download of in-memory bytes (create a Blob,
     // point a throwaway <a download> at it, click it programmatically).
-    final blob = html.Blob([
-      bytes,
-    ], message.mediaMimeHint ?? 'application/octet-stream');
+    final blob = html.Blob([bytes], mime);
     final url = html.Url.createObjectUrlFromBlob(blob);
     html.AnchorElement(href: url)
-      ..setAttribute(
-        'download',
-        message.mediaMimeHint?.startsWith('video/') ?? false ? 'video' : 'file',
-      )
+      ..setAttribute('download', filename)
       ..click();
     html.Url.revokeObjectUrl(url);
   }
@@ -1622,27 +1653,45 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
                     ),
             ),
             Positioned(
-              top: 8,
-              right: 8,
+              top: 4,
+              left: 4,
               child: IconButton(
                 icon: const Icon(
-                  CupertinoIcons.xmark_circle_fill,
+                  CupertinoIcons.xmark,
                   color: Colors.white,
-                  size: 32,
+                  size: 28,
                 ),
                 onPressed: () => Navigator.of(context).pop(),
               ),
             ),
+            // A clearly-labeled bottom bar, not just a small icon lost in a
+            // corner — matches Telegram's photo/video viewer action bar.
             Positioned(
-              top: 8,
-              left: 8,
-              child: IconButton(
-                icon: const Icon(
-                  CupertinoIcons.arrow_down_circle_fill,
-                  color: Colors.white,
-                  size: 32,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                color: Colors.black.withValues(alpha: 0.55),
+                child: InkWell(
+                  onTap: widget.onDownload,
+                  child: const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        CupertinoIcons.arrow_down_to_line,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Скачать',
+                        style: TextStyle(color: Colors.white, fontSize: 13),
+                      ),
+                    ],
+                  ),
                 ),
-                onPressed: widget.onDownload,
               ),
             ),
           ],

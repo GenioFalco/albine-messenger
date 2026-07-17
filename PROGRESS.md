@@ -199,3 +199,7 @@ Session-level working log. Updated before major stages and at least every 30–4
 
 **Next steps:**
 1. Manual E2E: paperclip opens the OS dialog directly (photo/video/doc all still send correctly via extension-based detection), camera glyph renders as a clean rounded-square-with-circle, pinning 2+ messages and tapping the banner repeatedly cycles through all of them and wraps around.
+
+**Follow-up — downloaded media had no proper filename; viewer's download button was hard to find.**
+- **Bug:** `_downloadMedia`'s `<a download="...">` attribute was hardcoded to the bare string `"video"` or `"file"` — no extension at all, so the browser saved every photo/video/document as a nameless, extension-less blob the OS had nothing to associate a preview/app with (this is what read as "saved as generic files"). Added `_extensionForMime()` and now download as e.g. `photo.jpg`/`video.mp4`/`file.pdf`.
+- **Viewer redesign:** the download button was a small icon tucked in a corner, easy to miss. Replaced the top-left/top-right icon pair with a minimal close (✕) top-left and a full-width, clearly labeled "Скачать" bar pinned to the bottom of the screen (semi-transparent black, icon + text) — matches Telegram's photo/video viewer action bar instead of a corner icon.
