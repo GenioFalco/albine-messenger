@@ -139,6 +139,8 @@ Session-level working log. Updated before major stages and at least every 30–4
 - Fixed a real bug: a forwarded message showed "Редактировать" whenever I was the one who forwarded it (`mine == true`), even though I didn't author its content. Now gated on `forwardedFromSenderId == null` too.
 - Composer redesigned: raised/more padding around the input; a disabled paperclip icon on the left (placeholder for M3 media, not wired up); the trailing button now toggles between mic/video-camera icons when the input is empty (tap to switch, not functional yet — voice/video isn't implemented) and swaps to a solid circular accent-colored send button (Cupertino arrow-up / checkmark-when-editing) as soon as there's text, replacing the old plain `IconButton.filled`.
 
+**Same-day follow-up:** composer still sat flush against the screen's bottom edge and the mic/camera/paperclip icons looked thin/generic next to Telegram's — bumped the bottom padding (14 → 24) so the bar clears the edge with real breathing room, and swapped `CupertinoIcons.mic`/`videocam` for the bolder filled `mic_fill`/`camera_fill`, with consistent 26px sizing across paperclip/mic/camera.
+
 **Next steps:**
 1. Apply `0005`/`0006` migrations to the live Supabase project (still outstanding).
 2. Manual E2E: blurred sheets render correctly, multi-select forward/delete across a direct and a group chat, icons render (no missing-glyph boxes), message preview shows above the action sheet, deleted messages vanish cleanly, composer buttons behave as described.

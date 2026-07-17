@@ -859,17 +859,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ),
                       ),
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 10, 12, 14),
+                      padding: const EdgeInsets.fromLTRB(8, 10, 12, 24),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           // Not wired up yet — media (M3) is on hold, this is
                           // just the visual slot for it.
                           IconButton(
+                            iconSize: 26,
                             icon: Icon(
                               CupertinoIcons.paperclip,
                               color: colors.textSecondary.withValues(
-                                alpha: 0.5,
+                                alpha: 0.6,
                               ),
                             ),
                             onPressed: null,
@@ -908,10 +909,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 // isn't wired up either, this just toggles
                                 // which icon shows, same as WhatsApp/Telegram.
                                 return IconButton(
+                                  iconSize: 26,
                                   icon: Icon(
                                     _voiceMode
-                                        ? CupertinoIcons.mic
-                                        : CupertinoIcons.videocam,
+                                        ? CupertinoIcons.mic_fill
+                                        : CupertinoIcons.camera_fill,
                                     color: colors.textSecondary,
                                   ),
                                   onPressed: () =>
