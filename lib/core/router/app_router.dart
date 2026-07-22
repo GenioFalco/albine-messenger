@@ -13,7 +13,10 @@ import '../../features/splash/splash_screen.dart';
 
 class _RouterRefreshNotifier extends ChangeNotifier {
   _RouterRefreshNotifier(Ref ref) {
-    ref.listen(sessionControllerProvider, (previous, next) => notifyListeners());
+    ref.listen(
+      sessionControllerProvider,
+      (previous, next) => notifyListeners(),
+    );
   }
 }
 
@@ -32,15 +35,22 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         path: '/setup-profile',
         builder: (context, state) => const ProfileSetupScreen(),
       ),
-      GoRoute(path: '/unlock', builder: (context, state) => const UnlockScreen()),
-      GoRoute(path: '/profile', builder: (context, state) => const ProfileScreen()),
+      GoRoute(
+        path: '/unlock',
+        builder: (context, state) => const UnlockScreen(),
+      ),
+      GoRoute(
+        path: '/profile',
+        builder: (context, state) => const ProfileScreen(),
+      ),
       GoRoute(
         path: '/chats',
         builder: (context, state) => const MainShell(),
         routes: [
           GoRoute(
             path: ':id',
-            builder: (context, state) => ChatScreen(conversationId: state.pathParameters['id']!),
+            builder: (context, state) =>
+                ChatScreen(conversationId: state.pathParameters['id']!),
           ),
         ],
       ),

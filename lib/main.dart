@@ -8,6 +8,9 @@ import 'core/config/env.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Env.load();
-  await Supabase.initialize(url: Env.supabaseUrl, publishableKey: Env.supabaseAnonKey);
+  await Supabase.initialize(
+    url: Env.supabaseUrl,
+    publishableKey: Env.supabaseAnonKey,
+  );
   runApp(const ProviderScope(child: AlbineApp()));
 }

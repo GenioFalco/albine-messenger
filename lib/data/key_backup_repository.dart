@@ -14,7 +14,11 @@ class KeyBackupRepository {
   final SupabaseClient _client;
 
   Future<WrappedSecret?> fetchBackup(String userId) async {
-    final row = await _client.from('key_backups').select().eq('user_id', userId).maybeSingle();
+    final row = await _client
+        .from('key_backups')
+        .select()
+        .eq('user_id', userId)
+        .maybeSingle();
     if (row == null) return null;
     return WrappedSecret(
       salt: base64Decode(row['wrapped_salt'] as String),

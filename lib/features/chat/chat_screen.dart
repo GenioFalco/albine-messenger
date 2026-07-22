@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:html' as html;
 
 import 'package:file_picker/file_picker.dart';
@@ -99,6 +100,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// view back to the bottom.
   bool _suppressAutoScroll = false;
   int _lastEntryCount = -1;
+
+  /// Message ids already sent through `markMessagesRead` this session — a
+  /// local dedupe so the same unread batch doesn't trigger a repeat network
+  /// call on every rebuild (the update itself is already a no-op the second
+  /// time, but there's no reason to keep asking).
+  final Set<String> _markReadRequested = {};
+
+  void _maybeMarkRead(List<ChatMessage> items, String? myId) {
+    if (myId == null) return;
+    final unread = items.where(
+      (m) =>
+          m.senderId != myId &&
+          m.readAt == null &&
+          !_markReadRequested.contains(m.id),
+    );
+    if (unread.isEmpty) return;
+    _markReadRequested.addAll(unread.map((m) => m.id));
+    ref.read(chatRepositoryProvider)?.markMessagesRead(widget.conversationId);
+  }
 
   @override
   void dispose() {
@@ -411,6 +431,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
       }
     }
+  }
+
+  /// Single check = sent, double check (tinted, WhatsApp/Telegram-style) =
+  /// read by the other side — see `0009_read_receipts.sql`. Only ever shown
+  /// next to my own messages; there's nothing to show on an incoming one.
+  Widget _statusTicks(
+    ChatMessage message,
+    AlbineColors colors, {
+    required bool onImage,
+  }) {
+    final read = message.readAt != null;
+    final baseColor = onImage ? Colors.white : colors.textOnAccent;
+    return Icon(
+      read ? Icons.done_all : Icons.done,
+      size: onImage ? 12 : 13,
+      color: read ? const Color(0xFF5AC8FA) : baseColor.withValues(alpha: 0.75),
+    );
   }
 
   String _formatFileSize(int bytes) {
@@ -969,6 +1006,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ) ??
                         rawItems;
                     final entries = _buildListEntries(items);
+                    WidgetsBinding.instance.addPostFrameCallback(
+                      (_) => _maybeMarkRead(items, myId),
+                    );
                     // Only jump to the bottom when the list actually grew
                     // (a new message arrived) and nothing else is mid-scroll
                     // — otherwise a scroll-to-message jump (reply quote,
@@ -1178,12 +1218,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                             8,
                                           ),
                                         ),
-                                        child: Text(
-                                          formatMessageTime(message.createdAt),
-                                          style: const TextStyle(
-                                            fontSize: 10,
-                                            color: Colors.white,
-                                          ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              formatMessageTime(
+                                                message.createdAt,
+                                              ),
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                            if (mine) ...[
+                                              const SizedBox(width: 3),
+                                              _statusTicks(
+                                                message,
+                                                colors,
+                                                onImage: true,
+                                              ),
+                                            ],
+                                          ],
                                         ),
                                       ),
                                     ),
@@ -1192,16 +1247,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               else ...[
                                 messageBody,
                                 const SizedBox(height: 2),
-                                Text(
-                                  formatMessageTime(message.createdAt),
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: mine
-                                        ? colors.textOnAccent.withValues(
-                                            alpha: 0.75,
-                                          )
-                                        : colors.textSecondary,
-                                  ),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      formatMessageTime(message.createdAt),
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: mine
+                                            ? colors.textOnAccent.withValues(
+                                                alpha: 0.75,
+                                              )
+                                            : colors.textSecondary,
+                                      ),
+                                    ),
+                                    if (mine) ...[
+                                      const SizedBox(width: 3),
+                                      _statusTicks(
+                                        message,
+                                        colors,
+                                        onImage: false,
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ],
                             ],
@@ -1595,6 +1663,8 @@ class _MediaViewerDialog extends StatefulWidget {
 class _MediaViewerDialogState extends State<_MediaViewerDialog> {
   VideoPlayerController? _videoController;
   String? _blobUrl;
+  bool _controlsVisible = true;
+  Timer? _hideTimer;
 
   bool get _isVideo =>
       widget.message.mediaMimeHint?.startsWith('video/') ?? false;
@@ -1606,23 +1676,218 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
       final blob = html.Blob([widget.bytes], widget.message.mediaMimeHint);
       final url = html.Url.createObjectUrlFromBlob(blob);
       _blobUrl = url;
-      _videoController = VideoPlayerController.networkUrl(Uri.parse(url))
-        ..initialize()
-            .then((_) {
-              if (mounted) setState(() {});
-            })
-            .catchError((_) {})
+      final controller = VideoPlayerController.networkUrl(Uri.parse(url))
         ..setLooping(false);
-      _videoController?.play();
+      _videoController = controller;
+      controller
+          .initialize()
+          .then((_) {
+            if (!mounted) return;
+            setState(() {});
+            controller.play();
+            _resetHideTimer();
+          })
+          .catchError((_) {});
     }
   }
 
   @override
   void dispose() {
+    _hideTimer?.cancel();
     _videoController?.dispose();
     final url = _blobUrl;
     if (url != null) html.Url.revokeObjectUrl(url);
     super.dispose();
+  }
+
+  /// Controls fade out after a few seconds of playback so the video isn't
+  /// permanently covered by an overlay — any tap on the video area (via
+  /// [_toggleControlsOrPlayback]) brings them back and restarts the clock,
+  /// same as every native video player.
+  void _resetHideTimer() {
+    _hideTimer?.cancel();
+    final controller = _videoController;
+    if (controller == null || !controller.value.isPlaying) return;
+    _hideTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _controlsVisible = false);
+    });
+  }
+
+  void _toggleControlsOrPlayback() {
+    if (!_controlsVisible) {
+      setState(() => _controlsVisible = true);
+      _resetHideTimer();
+      return;
+    }
+    _togglePlayPause();
+  }
+
+  void _togglePlayPause() {
+    final controller = _videoController;
+    if (controller == null) return;
+    setState(() {
+      if (controller.value.isPlaying) {
+        controller.pause();
+        _hideTimer?.cancel();
+      } else {
+        controller.play();
+        _resetHideTimer();
+      }
+      _controlsVisible = true;
+    });
+  }
+
+  void _seekBy(Duration delta) {
+    final controller = _videoController;
+    if (controller == null) return;
+    final duration = controller.value.duration;
+    var target = controller.value.position + delta;
+    if (target < Duration.zero) target = Duration.zero;
+    if (target > duration) target = duration;
+    controller.seekTo(target);
+    _resetHideTimer();
+  }
+
+  String _formatDuration(Duration d) {
+    final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    final hours = d.inHours;
+    return hours > 0
+        ? '$hours:$minutes:${seconds.padLeft(2, '0')}'
+        : '$minutes:$seconds';
+  }
+
+  Widget _topBar() {
+    return Positioned(
+      top: 4,
+      left: 4,
+      right: 4,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          IconButton(
+            icon: const Icon(
+              CupertinoIcons.xmark,
+              color: Colors.white,
+              size: 26,
+            ),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          IconButton(
+            icon: const Icon(
+              CupertinoIcons.arrow_down_to_line,
+              color: Colors.white,
+              size: 24,
+            ),
+            tooltip: 'Скачать',
+            onPressed: widget.onDownload,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _videoControls(VideoPlayerController controller) {
+    return ValueListenableBuilder<VideoPlayerValue>(
+      valueListenable: controller,
+      builder: (context, value, _) {
+        return AnimatedOpacity(
+          opacity: _controlsVisible ? 1 : 0,
+          duration: const Duration(milliseconds: 200),
+          child: IgnorePointer(
+            ignoring: !_controlsVisible,
+            child: Stack(
+              children: [
+                // Dim the video slightly while the transport controls are
+                // up, same as every native player — makes the white
+                // play/pause + skip icons readable over any footage.
+                Positioned.fill(
+                  child: Container(color: Colors.black.withValues(alpha: 0.15)),
+                ),
+                Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(
+                          CupertinoIcons.gobackward_15,
+                          color: Colors.white,
+                          size: 34,
+                        ),
+                        onPressed: () => _seekBy(const Duration(seconds: -15)),
+                      ),
+                      const SizedBox(width: 24),
+                      IconButton(
+                        icon: Icon(
+                          value.isPlaying
+                              ? CupertinoIcons.pause_fill
+                              : CupertinoIcons.play_fill,
+                          color: Colors.white,
+                          size: 46,
+                        ),
+                        onPressed: _togglePlayPause,
+                      ),
+                      const SizedBox(width: 24),
+                      IconButton(
+                        icon: const Icon(
+                          CupertinoIcons.goforward_15,
+                          color: Colors.white,
+                          size: 34,
+                        ),
+                        onPressed: () => _seekBy(const Duration(seconds: 15)),
+                      ),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        VideoProgressIndicator(
+                          controller,
+                          allowScrubbing: true,
+                          padding: EdgeInsets.zero,
+                          colors: const VideoProgressColors(
+                            playedColor: Colors.white,
+                            bufferedColor: Colors.white38,
+                            backgroundColor: Colors.white24,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              _formatDuration(value.position),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                              ),
+                            ),
+                            Text(
+                              _formatDuration(value.duration),
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -1636,15 +1901,19 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
             Center(
               child: _isVideo
                   ? (controller != null && controller.value.isInitialized
-                        ? AspectRatio(
-                            aspectRatio: controller.value.aspectRatio,
-                            child: GestureDetector(
-                              onTap: () => setState(() {
-                                controller.value.isPlaying
-                                    ? controller.pause()
-                                    : controller.play();
-                              }),
-                              child: VideoPlayer(controller),
+                        ? GestureDetector(
+                            onTap: _toggleControlsOrPlayback,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                AspectRatio(
+                                  aspectRatio: controller.value.aspectRatio,
+                                  child: VideoPlayer(controller),
+                                ),
+                                Positioned.fill(
+                                  child: _videoControls(controller),
+                                ),
+                              ],
                             ),
                           )
                         : const CircularProgressIndicator(color: Colors.white))
@@ -1652,48 +1921,7 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
                       child: Image.memory(widget.bytes, fit: BoxFit.contain),
                     ),
             ),
-            Positioned(
-              top: 4,
-              left: 4,
-              child: IconButton(
-                icon: const Icon(
-                  CupertinoIcons.xmark,
-                  color: Colors.white,
-                  size: 28,
-                ),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            ),
-            // A clearly-labeled bottom bar, not just a small icon lost in a
-            // corner — matches Telegram's photo/video viewer action bar.
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                color: Colors.black.withValues(alpha: 0.55),
-                child: InkWell(
-                  onTap: widget.onDownload,
-                  child: const Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        CupertinoIcons.arrow_down_to_line,
-                        color: Colors.white,
-                        size: 26,
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        'Скачать',
-                        style: TextStyle(color: Colors.white, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+            _topBar(),
           ],
         ),
       ),

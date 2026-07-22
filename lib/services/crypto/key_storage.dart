@@ -44,11 +44,16 @@ class LocalKeyStorage implements KeyStorage {
   static const _maxRetiredKeys = 10;
 
   String _keyFor(String userId) => 'albine.wrapped_identity_key.$userId';
-  String _unlockedKeyFor(String userId) => 'albine.unlocked_identity_key.$userId';
-  String _retiredKeysFor(String userId) => 'albine.retired_identity_keys.$userId';
+  String _unlockedKeyFor(String userId) =>
+      'albine.unlocked_identity_key.$userId';
+  String _retiredKeysFor(String userId) =>
+      'albine.retired_identity_keys.$userId';
 
   @override
-  Future<void> saveWrappedPrivateKey(String userId, WrappedSecret wrapped) async {
+  Future<void> saveWrappedPrivateKey(
+    String userId,
+    WrappedSecret wrapped,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyFor(userId), jsonEncode(wrapped.toJson()));
   }
@@ -68,9 +73,15 @@ class LocalKeyStorage implements KeyStorage {
   }
 
   @override
-  Future<void> saveUnlockedSecretKey(String userId, Uint8List secretKeyBytes) async {
+  Future<void> saveUnlockedSecretKey(
+    String userId,
+    Uint8List secretKeyBytes,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_unlockedKeyFor(userId), base64Encode(secretKeyBytes));
+    await prefs.setString(
+      _unlockedKeyFor(userId),
+      base64Encode(secretKeyBytes),
+    );
   }
 
   @override
@@ -88,11 +99,16 @@ class LocalKeyStorage implements KeyStorage {
   }
 
   @override
-  Future<void> addRetiredSecretKey(String userId, Uint8List secretKeyBytes) async {
+  Future<void> addRetiredSecretKey(
+    String userId,
+    Uint8List secretKeyBytes,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     final key = _retiredKeysFor(userId);
     final raw = prefs.getString(key);
-    final list = raw == null ? <String>[] : List<String>.from(jsonDecode(raw) as List);
+    final list = raw == null
+        ? <String>[]
+        : List<String>.from(jsonDecode(raw) as List);
     list.insert(0, base64Encode(secretKeyBytes));
     if (list.length > _maxRetiredKeys) {
       list.removeRange(_maxRetiredKeys, list.length);

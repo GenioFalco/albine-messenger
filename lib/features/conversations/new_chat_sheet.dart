@@ -97,7 +97,9 @@ class _NewChatSheetState extends ConsumerState<_NewChatSheet> {
     final colors = Theme.of(context).extension<AlbineColors>()!;
 
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: SizedBox(
         height: MediaQuery.of(context).size.height * 0.7,
         child: Column(
@@ -109,9 +111,9 @@ class _NewChatSheetState extends ConsumerState<_NewChatSheet> {
                 children: [
                   Text(
                     'Новый чат',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -121,7 +123,10 @@ class _NewChatSheetState extends ConsumerState<_NewChatSheet> {
                     style: TextStyle(color: colors.textPrimary),
                     decoration: InputDecoration(
                       hintText: 'Найти по имени пользователя',
-                      prefixIcon: Icon(Icons.search, color: colors.textSecondary),
+                      prefixIcon: Icon(
+                        Icons.search,
+                        color: colors.textSecondary,
+                      ),
                       filled: true,
                       fillColor: colors.surface,
                       contentPadding: const EdgeInsets.symmetric(vertical: 4),
@@ -135,7 +140,10 @@ class _NewChatSheetState extends ConsumerState<_NewChatSheet> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(colors.radius),
-                        borderSide: BorderSide(color: colors.accent, width: 1.5),
+                        borderSide: BorderSide(
+                          color: colors.accent,
+                          width: 1.5,
+                        ),
                       ),
                     ),
                   ),
@@ -154,7 +162,11 @@ class _NewChatSheetState extends ConsumerState<_NewChatSheet> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: colors.textSecondary)),
+          child: Text(
+            _error!,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: colors.textSecondary),
+          ),
         ),
       );
     }
@@ -175,7 +187,10 @@ class _NewChatSheetState extends ConsumerState<_NewChatSheet> {
     }
     if (_results.isEmpty) {
       return Center(
-        child: Text('Никого не нашлось', style: TextStyle(color: colors.textSecondary)),
+        child: Text(
+          'Никого не нашлось',
+          style: TextStyle(color: colors.textSecondary),
+        ),
       );
     }
     return ListView.builder(
@@ -188,14 +203,23 @@ class _NewChatSheetState extends ConsumerState<_NewChatSheet> {
             backgroundColor: colors.surfaceStrong,
             child: Text(
               p.displayName.isNotEmpty ? p.displayName[0].toUpperCase() : '?',
-              style: TextStyle(color: colors.textPrimary, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: colors.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           title: Text(
             p.displayName,
-            style: TextStyle(fontWeight: FontWeight.w600, color: colors.textPrimary),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: colors.textPrimary,
+            ),
           ),
-          subtitle: Text('@${p.username}', style: TextStyle(color: colors.textSecondary)),
+          subtitle: Text(
+            '@${p.username}',
+            style: TextStyle(color: colors.textSecondary),
+          ),
           onTap: () => _openChat(p),
         );
       },

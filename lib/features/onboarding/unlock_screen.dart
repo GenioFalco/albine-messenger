@@ -33,7 +33,9 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
       _loading = true;
       _error = null;
     });
-    final error = await ref.read(sessionControllerProvider.notifier).unlock(_passwordController.text);
+    final error = await ref
+        .read(sessionControllerProvider.notifier)
+        .unlock(_passwordController.text);
     if (mounted) {
       setState(() {
         _loading = false;
@@ -80,9 +82,8 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
                   children: [
                     Text(
                       'С возвращением${profile != null ? ', ${profile.displayName}' : ''}',
-                      style: Theme.of(
-                        context,
-                      ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -102,15 +103,22 @@ class _UnlockScreenState extends ConsumerState<UnlockScreen> {
                       AppErrorText(_error!),
                       const SizedBox(height: 8),
                       AppLink(
-                        text: 'Недавно сбросил(а) пароль? Начать заново на этом устройстве',
+                        text:
+                            'Недавно сбросил(а) пароль? Начать заново на этом устройстве',
                         onTap: _resetLocalKey,
                       ),
                     ],
                     const SizedBox(height: 20),
-                    AppButton(label: 'Продолжить', loading: _loading, onPressed: _submit),
+                    AppButton(
+                      label: 'Продолжить',
+                      loading: _loading,
+                      onPressed: _submit,
+                    ),
                     const SizedBox(height: 8),
                     TextButton(
-                      onPressed: () => ref.read(sessionControllerProvider.notifier).signOut(),
+                      onPressed: () => ref
+                          .read(sessionControllerProvider.notifier)
+                          .signOut(),
                       child: const Text('Выйти из аккаунта'),
                     ),
                   ],

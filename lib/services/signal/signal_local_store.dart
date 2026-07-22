@@ -21,7 +21,8 @@ class SignalLocalStore implements SignalProtocolStore {
   String get _identityKey => 'albine.signal.identity.$userId';
   String get _regIdKey => 'albine.signal.regid.$userId';
   String get _signedPreKeysKey => 'albine.signal.signedprekeys.$userId';
-  String get _currentSignedPreKeyIdKey => 'albine.signal.signedprekey.current.$userId';
+  String get _currentSignedPreKeyIdKey =>
+      'albine.signal.signedprekey.current.$userId';
   String get _preKeysKey => 'albine.signal.prekeys.$userId';
   String get _preKeyCounterKey => 'albine.signal.prekeycounter.$userId';
   String get _sessionsKey => 'albine.signal.sessions.$userId';
@@ -45,7 +46,10 @@ class SignalLocalStore implements SignalProtocolStore {
     return prefs.containsKey(_identityKey);
   }
 
-  Future<void> saveIdentityKeyPair(IdentityKeyPair pair, int registrationId) async {
+  Future<void> saveIdentityKeyPair(
+    IdentityKeyPair pair,
+    int registrationId,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_identityKey, base64Encode(pair.serialize()));
     await prefs.setInt(_regIdKey, registrationId);
@@ -61,7 +65,8 @@ class SignalLocalStore implements SignalProtocolStore {
     await prefs.setInt(_currentSignedPreKeyIdKey, id);
   }
 
-  Future<int> unconsumedPreKeyCount() async => (await _readMap(_preKeysKey)).length;
+  Future<int> unconsumedPreKeyCount() async =>
+      (await _readMap(_preKeysKey)).length;
 
   /// Full reset — used by "rotate my key" (see
   /// `SessionController.rotateIdentityKey`): a suspected-compromised device
@@ -119,7 +124,10 @@ class SignalLocalStore implements SignalProtocolStore {
   }
 
   @override
-  Future<bool> saveIdentity(SignalProtocolAddress address, IdentityKey? identityKey) async {
+  Future<bool> saveIdentity(
+    SignalProtocolAddress address,
+    IdentityKey? identityKey,
+  ) async {
     // v1: trust-on-first-use, no persistent per-contact identity pinning or
     // safety-number UI exists yet — same posture as the legacy crypto_box
     // path, which re-trusts whatever `profiles.identity_pubkey` says on
@@ -143,18 +151,25 @@ class SignalLocalStore implements SignalProtocolStore {
   Future<SignedPreKeyRecord> loadSignedPreKey(int signedPreKeyId) async {
     final map = await _readMap(_signedPreKeysKey);
     final raw = map['$signedPreKeyId'] as String?;
-    if (raw == null) throw InvalidKeyIdException('No such signed prekey: $signedPreKeyId');
+    if (raw == null)
+      throw InvalidKeyIdException('No such signed prekey: $signedPreKeyId');
     return SignedPreKeyRecord.fromSerialized(base64Decode(raw));
   }
 
   @override
   Future<List<SignedPreKeyRecord>> loadSignedPreKeys() async {
     final map = await _readMap(_signedPreKeysKey);
-    return [for (final raw in map.values) SignedPreKeyRecord.fromSerialized(base64Decode(raw as String))];
+    return [
+      for (final raw in map.values)
+        SignedPreKeyRecord.fromSerialized(base64Decode(raw as String)),
+    ];
   }
 
   @override
-  Future<void> storeSignedPreKey(int signedPreKeyId, SignedPreKeyRecord record) async {
+  Future<void> storeSignedPreKey(
+    int signedPreKeyId,
+    SignedPreKeyRecord record,
+  ) async {
     final map = await _readMap(_signedPreKeysKey);
     map['$signedPreKeyId'] = base64Encode(record.serialize());
     await _writeMap(_signedPreKeysKey, map);
@@ -205,7 +220,8 @@ class SignalLocalStore implements SignalProtocolStore {
 
   // ---- SessionStore ----
 
-  String _addressKey(SignalProtocolAddress address) => '${address.getName()}:${address.getDeviceId()}';
+  String _addressKey(SignalProtocolAddress address) =>
+      '${address.getName()}:${address.getDeviceId()}';
 
   @override
   Future<SessionRecord> loadSession(SignalProtocolAddress address) async {
@@ -225,7 +241,10 @@ class SignalLocalStore implements SignalProtocolStore {
   }
 
   @override
-  Future<void> storeSession(SignalProtocolAddress address, SessionRecord record) async {
+  Future<void> storeSession(
+    SignalProtocolAddress address,
+    SessionRecord record,
+  ) async {
     final map = await _readMap(_sessionsKey);
     map[_addressKey(address)] = base64Encode(record.serialize());
     await _writeMap(_sessionsKey, map);

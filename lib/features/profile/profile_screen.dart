@@ -39,11 +39,16 @@ class ProfileScreen extends ConsumerWidget {
                 const SizedBox(height: 14),
                 Text(
                   profile?.displayName ?? '...',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 if (profile != null) ...[
                   const SizedBox(height: 4),
-                  Text('@${profile.username}', style: TextStyle(color: colors.textSecondary)),
+                  Text(
+                    '@${profile.username}',
+                    style: TextStyle(color: colors.textSecondary),
+                  ),
                 ],
               ],
             ),
@@ -53,14 +58,22 @@ class ProfileScreen extends ConsumerWidget {
             padding: const EdgeInsets.only(left: 4, bottom: 8),
             child: Text(
               'Безопасность',
-              style: TextStyle(color: colors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: colors.textSecondary,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           AppCard(
             onTap: () => _showRotateKeyDialog(context, ref),
             child: Row(
               children: [
-                Icon(Icons.security_outlined, color: colors.textSecondary, size: 20),
+                Icon(
+                  Icons.security_outlined,
+                  color: colors.textSecondary,
+                  size: 20,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -68,14 +81,20 @@ class ProfileScreen extends ConsumerWidget {
                     children: [
                       Text(
                         'Сбросить ключ шифрования',
-                        style: TextStyle(fontWeight: FontWeight.w600, color: colors.textPrimary),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: colors.textPrimary,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         'Если подозреваешь, что устройство могли взломать — старая переписка '
                         'останется читаемой на этом устройстве, но украденный ключ перестанет '
                         'работать для новых сообщений.',
-                        style: TextStyle(color: colors.textSecondary, fontSize: 13),
+                        style: TextStyle(
+                          color: colors.textSecondary,
+                          fontSize: 13,
+                        ),
                       ),
                     ],
                   ),
@@ -92,7 +111,10 @@ class ProfileScreen extends ConsumerWidget {
                 const SizedBox(width: 12),
                 Text(
                   'Выйти из аккаунта',
-                  style: TextStyle(fontWeight: FontWeight.w600, color: colors.textPrimary),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: colors.textPrimary,
+                  ),
                 ),
               ],
             ),
@@ -103,7 +125,10 @@ class ProfileScreen extends ConsumerWidget {
   }
 
   void _showRotateKeyDialog(BuildContext context, WidgetRef ref) {
-    showDialog<void>(context: context, builder: (context) => const _RotateKeyDialog());
+    showDialog<void>(
+      context: context,
+      builder: (context) => const _RotateKeyDialog(),
+    );
   }
 }
 
@@ -150,9 +175,14 @@ class _RotateKeyDialogState extends ConsumerState<_RotateKeyDialog> {
       return AlertDialog(
         backgroundColor: colors.background,
         title: const Text('Готово'),
-        content: const Text('Новый ключ создан и опубликован. Старые сообщения по-прежнему читаются.'),
+        content: const Text(
+          'Новый ключ создан и опубликован. Старые сообщения по-прежнему читаются.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Закрыть')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Закрыть'),
+          ),
         ],
       );
     }
@@ -177,7 +207,10 @@ class _RotateKeyDialogState extends ConsumerState<_RotateKeyDialog> {
             autofocus: true,
             onSubmitted: (_) => _confirm(),
           ),
-          if (_error != null) ...[const SizedBox(height: 12), AppErrorText(_error!)],
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            AppErrorText(_error!),
+          ],
         ],
       ),
       actions: [
@@ -185,7 +218,10 @@ class _RotateKeyDialogState extends ConsumerState<_RotateKeyDialog> {
           onPressed: _loading ? null : () => Navigator.of(context).pop(),
           child: const Text('Отмена'),
         ),
-        TextButton(onPressed: _loading ? null : _confirm, child: const Text('Сбросить')),
+        TextButton(
+          onPressed: _loading ? null : _confirm,
+          child: const Text('Сбросить'),
+        ),
       ],
     );
   }

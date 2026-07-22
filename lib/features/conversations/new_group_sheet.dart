@@ -100,7 +100,8 @@ class _NewGroupSheetState extends ConsumerState<_NewGroupSheet> {
     final myProfile = ref.read(sessionControllerProvider).profile;
     final chat = ref.read(chatRepositoryProvider);
     final crypto = ref.read(cryptoServiceProvider);
-    if (title.isEmpty || _selected.isEmpty || myProfile == null || chat == null) return;
+    if (title.isEmpty || _selected.isEmpty || myProfile == null || chat == null)
+      return;
 
     setState(() {
       _creating = true;
@@ -114,11 +115,17 @@ class _NewGroupSheetState extends ConsumerState<_NewGroupSheet> {
       // key (crypto_box_seal); the server only ever sees the sealed output.
       final wrappedKeys = <String, String>{
         myProfile.id: base64Encode(
-          crypto.sealGroupKeyForMember(memberPublicKey: myProfile.identityPubkey, groupKey: groupKey),
+          crypto.sealGroupKeyForMember(
+            memberPublicKey: myProfile.identityPubkey,
+            groupKey: groupKey,
+          ),
         ),
         for (final member in _selected.values)
           member.id: base64Encode(
-            crypto.sealGroupKeyForMember(memberPublicKey: member.identityPubkey, groupKey: groupKey),
+            crypto.sealGroupKeyForMember(
+              memberPublicKey: member.identityPubkey,
+              groupKey: groupKey,
+            ),
           ),
       };
 
@@ -142,10 +149,15 @@ class _NewGroupSheetState extends ConsumerState<_NewGroupSheet> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AlbineColors>()!;
-    final canCreate = !_creating && _titleController.text.trim().isNotEmpty && _selected.isNotEmpty;
+    final canCreate =
+        !_creating &&
+        _titleController.text.trim().isNotEmpty &&
+        _selected.isNotEmpty;
 
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: SizedBox(
         height: MediaQuery.of(context).size.height * 0.85,
         child: Column(
@@ -157,9 +169,9 @@ class _NewGroupSheetState extends ConsumerState<_NewGroupSheet> {
                 children: [
                   Text(
                     'Новая группа',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -171,7 +183,10 @@ class _NewGroupSheetState extends ConsumerState<_NewGroupSheet> {
                       hintText: 'Название группы',
                       filled: true,
                       fillColor: colors.surface,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(colors.radius),
                         borderSide: BorderSide.none,
@@ -201,7 +216,10 @@ class _NewGroupSheetState extends ConsumerState<_NewGroupSheet> {
                     style: TextStyle(color: colors.textPrimary),
                     decoration: InputDecoration(
                       hintText: 'Добавить участников',
-                      prefixIcon: Icon(Icons.search, color: colors.textSecondary),
+                      prefixIcon: Icon(
+                        Icons.search,
+                        color: colors.textSecondary,
+                      ),
                       filled: true,
                       fillColor: colors.surface,
                       contentPadding: const EdgeInsets.symmetric(vertical: 4),
@@ -258,7 +276,10 @@ class _NewGroupSheetState extends ConsumerState<_NewGroupSheet> {
     }
     if (_results.isEmpty) {
       return Center(
-        child: Text('Никого не нашлось', style: TextStyle(color: colors.textSecondary)),
+        child: Text(
+          'Никого не нашлось',
+          style: TextStyle(color: colors.textSecondary),
+        ),
       );
     }
     return ListView.builder(
@@ -271,14 +292,23 @@ class _NewGroupSheetState extends ConsumerState<_NewGroupSheet> {
             backgroundColor: colors.surfaceStrong,
             child: Text(
               p.displayName.isNotEmpty ? p.displayName[0].toUpperCase() : '?',
-              style: TextStyle(color: colors.textPrimary, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: colors.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           title: Text(
             p.displayName,
-            style: TextStyle(fontWeight: FontWeight.w600, color: colors.textPrimary),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: colors.textPrimary,
+            ),
           ),
-          subtitle: Text('@${p.username}', style: TextStyle(color: colors.textSecondary)),
+          subtitle: Text(
+            '@${p.username}',
+            style: TextStyle(color: colors.textSecondary),
+          ),
           trailing: Icon(Icons.add_circle_outline, color: colors.accent),
           onTap: () => _toggle(p),
         );

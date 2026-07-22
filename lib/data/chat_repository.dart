@@ -531,6 +531,21 @@ class ChatRepository {
     );
   }
 
+  /// Marks every not-yet-read message from *other* senders in
+  /// [conversationId] as read by this account — called when the chat screen
+  /// is open and messages are on screen. A plain bulk update rather than
+  /// per-message RPCs; `read_at` is set once and never revisited (see
+  /// `0009_read_receipts.sql`'s doc comment on the single-timestamp
+  /// semantics for groups).
+  Future<void> markMessagesRead(String conversationId) {
+    return _client
+        .from('messages')
+        .update({'read_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('conversation_id', conversationId)
+        .neq('sender_id', _myUserId)
+        .filter('read_at', 'is', null);
+  }
+
   /// Hard-deletes the row (sender only, enforced by RLS — see
   /// `0007_hard_delete_messages.sql`). A deleted message has no reason to
   /// linger in the database at all; `messages.deleted_at` stays in the

@@ -7,11 +7,17 @@ class AuthRepository {
 
   User? get currentUser => _client.auth.currentUser;
 
-  Future<AuthResponse> signUp({required String email, required String password}) {
+  Future<AuthResponse> signUp({
+    required String email,
+    required String password,
+  }) {
     return _client.auth.signUp(email: email, password: password);
   }
 
-  Future<AuthResponse> signIn({required String email, required String password}) {
+  Future<AuthResponse> signIn({
+    required String email,
+    required String password,
+  }) {
     return _client.auth.signInWithPassword(email: email, password: password);
   }
 

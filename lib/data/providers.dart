@@ -14,7 +14,9 @@ import 'profile_repository.dart';
 import 'session_controller.dart';
 import 'signal_directory_repository.dart';
 
-final cryptoServiceProvider = Provider<CryptoService>((ref) => SodiumCryptoService());
+final cryptoServiceProvider = Provider<CryptoService>(
+  (ref) => SodiumCryptoService(),
+);
 
 final keyStorageProvider = Provider<KeyStorage>((ref) => LocalKeyStorage());
 
@@ -30,7 +32,9 @@ final keyBackupRepositoryProvider = Provider<KeyBackupRepository>((ref) {
   return KeyBackupRepository(ref.watch(supabaseClientProvider));
 });
 
-final signalDirectoryRepositoryProvider = Provider<SignalDirectoryRepository>((ref) {
+final signalDirectoryRepositoryProvider = Provider<SignalDirectoryRepository>((
+  ref,
+) {
   return SignalDirectoryRepository(ref.watch(supabaseClientProvider));
 });
 
@@ -58,7 +62,9 @@ final chatRepositoryProvider = Provider<ChatRepository?>((ref) {
   final session = ref.watch(sessionControllerProvider);
   final keyPair = session.identityKeyPair;
   final signal = ref.watch(signalServiceProvider);
-  if (session.status != SessionStatus.ready || keyPair == null || signal == null) {
+  if (session.status != SessionStatus.ready ||
+      keyPair == null ||
+      signal == null) {
     return null;
   }
   final client = ref.watch(supabaseClientProvider);
@@ -72,29 +78,26 @@ final chatRepositoryProvider = Provider<ChatRepository?>((ref) {
   );
 });
 
-final conversationsStreamProvider = StreamProvider.autoDispose<List<ConversationSummary>>((ref) {
-  final repo = ref.watch(chatRepositoryProvider);
-  if (repo == null) return const Stream.empty();
-  return repo.watchConversations();
-});
+final conversationsStreamProvider =
+    StreamProvider.autoDispose<List<ConversationSummary>>((ref) {
+      final repo = ref.watch(chatRepositoryProvider);
+      if (repo == null) return const Stream.empty();
+      return repo.watchConversations();
+    });
 
-final messagesStreamProvider = StreamProvider.autoDispose.family<List<ChatMessage>, String>((
-  ref,
-  conversationId,
-) {
-  final repo = ref.watch(chatRepositoryProvider);
-  if (repo == null) return const Stream.empty();
-  return repo.watchMessages(conversationId);
-});
+final messagesStreamProvider = StreamProvider.autoDispose
+    .family<List<ChatMessage>, String>((ref, conversationId) {
+      final repo = ref.watch(chatRepositoryProvider);
+      if (repo == null) return const Stream.empty();
+      return repo.watchMessages(conversationId);
+    });
 
-final conversationSummaryProvider = FutureProvider.autoDispose.family<ConversationSummary?, String>((
-  ref,
-  conversationId,
-) {
-  final repo = ref.watch(chatRepositoryProvider);
-  if (repo == null) return Future.value(null);
-  return repo.fetchConversationSummary(conversationId);
-});
+final conversationSummaryProvider = FutureProvider.autoDispose
+    .family<ConversationSummary?, String>((ref, conversationId) {
+      final repo = ref.watch(chatRepositoryProvider);
+      if (repo == null) return Future.value(null);
+      return repo.fetchConversationSummary(conversationId);
+    });
 
 /// Which conversation is shown inline in the desktop 3-pane layout's detail
 /// column. Unused on narrow/mobile layouts, which push `/chats/:id` instead.

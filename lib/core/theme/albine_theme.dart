@@ -91,7 +91,10 @@ ThemeData buildAlbineTheme() {
       secondary: colors.textSecondary,
       surface: colors.background,
     ),
-    textTheme: base.textTheme.apply(bodyColor: colors.textPrimary, displayColor: colors.textPrimary),
+    textTheme: base.textTheme.apply(
+      bodyColor: colors.textPrimary,
+      displayColor: colors.textPrimary,
+    ),
     appBarTheme: AppBarTheme(
       backgroundColor: colors.background,
       foregroundColor: colors.textPrimary,

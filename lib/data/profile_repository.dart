@@ -11,7 +11,11 @@ class ProfileRepository {
   final SupabaseClient _client;
 
   Future<AppProfile?> fetchProfile(String userId) async {
-    final row = await _client.from('profiles').select().eq('id', userId).maybeSingle();
+    final row = await _client
+        .from('profiles')
+        .select()
+        .eq('id', userId)
+        .maybeSingle();
     return row == null ? null : AppProfile.fromRow(row);
   }
 
@@ -27,7 +31,10 @@ class ProfileRepository {
   /// Partial search over username and display name for the "find friends"
   /// flow. Excludes the current user. RLS ("profiles readable by
   /// authenticated") already allows reading every profile.
-  Future<List<AppProfile>> searchProfiles(String query, {required String excludeUserId}) async {
+  Future<List<AppProfile>> searchProfiles(
+    String query, {
+    required String excludeUserId,
+  }) async {
     // Strip characters that would break PostgREST's or()/ilike filter syntax.
     final q = query.trim().replaceAll(RegExp(r'[,%()*]'), '');
     if (q.isEmpty) return [];
@@ -71,7 +78,10 @@ class ProfileRepository {
   /// Overwrites the public key on file for this account — used when a
   /// device has no local wrapped private key (new device, cleared storage)
   /// and a fresh keypair was generated to replace the unrecoverable old one.
-  Future<void> updateIdentityPubkey({required String userId, required Uint8List identityPubkey}) {
+  Future<void> updateIdentityPubkey({
+    required String userId,
+    required Uint8List identityPubkey,
+  }) {
     return _client
         .from('profiles')
         .update({'identity_pubkey': base64Encode(identityPubkey)})

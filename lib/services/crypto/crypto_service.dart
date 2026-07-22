@@ -25,10 +25,16 @@ abstract class CryptoService {
   /// Encrypts [secret] with a key derived from [passphrase] via Argon2id.
   /// This is what turns a raw private key into something safe to put in
   /// local storage.
-  WrappedSecret wrapSecret({required Uint8List secret, required String passphrase});
+  WrappedSecret wrapSecret({
+    required Uint8List secret,
+    required String passphrase,
+  });
 
   /// Reverses [wrapSecret]. Throws [SodiumException] if [passphrase] is wrong.
-  Uint8List unwrapSecret({required WrappedSecret wrapped, required String passphrase});
+  Uint8List unwrapSecret({
+    required WrappedSecret wrapped,
+    required String passphrase,
+  });
 
   /// Wraps raw secret key bytes as a `SecureKey` without the public-key
   /// match check `restoreIdentityKeyPair` does — used for a *retired*
@@ -99,7 +105,10 @@ class SodiumCryptoService implements CryptoService {
   @override
   IdentityKeyPair generateIdentityKeyPair() {
     final pair = _s.crypto.box.keyPair();
-    return IdentityKeyPair(publicKey: pair.publicKey, secretKey: pair.secretKey);
+    return IdentityKeyPair(
+      publicKey: pair.publicKey,
+      secretKey: pair.secretKey,
+    );
   }
 
   @override
@@ -117,7 +126,10 @@ class SodiumCryptoService implements CryptoService {
   }
 
   @override
-  WrappedSecret wrapSecret({required Uint8List secret, required String passphrase}) {
+  WrappedSecret wrapSecret({
+    required Uint8List secret,
+    required String passphrase,
+  }) {
     final pwhash = _s.crypto.pwhash;
     final aead = _s.crypto.aeadXChaCha20Poly1305IETF;
 
@@ -133,7 +145,11 @@ class SodiumCryptoService implements CryptoService {
 
     final nonce = _s.randombytes.buf(aead.nonceBytes);
     try {
-      final ciphertext = aead.encrypt(message: secret, nonce: nonce, key: derivedKey);
+      final ciphertext = aead.encrypt(
+        message: secret,
+        nonce: nonce,
+        key: derivedKey,
+      );
       return WrappedSecret(salt: salt, nonce: nonce, ciphertext: ciphertext);
     } finally {
       derivedKey.dispose();
@@ -141,7 +157,10 @@ class SodiumCryptoService implements CryptoService {
   }
 
   @override
-  Uint8List unwrapSecret({required WrappedSecret wrapped, required String passphrase}) {
+  Uint8List unwrapSecret({
+    required WrappedSecret wrapped,
+    required String passphrase,
+  }) {
     final pwhash = _s.crypto.pwhash;
     final aead = _s.crypto.aeadXChaCha20Poly1305IETF;
 
@@ -154,14 +173,19 @@ class SodiumCryptoService implements CryptoService {
       alg: CryptoPwhashAlgorithm.argon2id13,
     );
     try {
-      return aead.decrypt(cipherText: wrapped.ciphertext, nonce: wrapped.nonce, key: derivedKey);
+      return aead.decrypt(
+        cipherText: wrapped.ciphertext,
+        nonce: wrapped.nonce,
+        key: derivedKey,
+      );
     } finally {
       derivedKey.dispose();
     }
   }
 
   @override
-  SecureKey wrapSecureKey(Uint8List secretKeyBytes) => _s.secureCopy(secretKeyBytes);
+  SecureKey wrapSecureKey(Uint8List secretKeyBytes) =>
+      _s.secureCopy(secretKeyBytes);
 
   @override
   EncryptedPayload encryptDirectMessage({
@@ -171,7 +195,10 @@ class SodiumCryptoService implements CryptoService {
   }) {
     final box = _s.crypto.box;
     final nonce = _s.randombytes.buf(box.nonceBytes);
-    final precalculated = box.precalculate(publicKey: theirPublicKey, secretKey: mySecretKey);
+    final precalculated = box.precalculate(
+      publicKey: theirPublicKey,
+      secretKey: mySecretKey,
+    );
     try {
       final ciphertext = precalculated.easy(message: plaintext, nonce: nonce);
       return EncryptedPayload(ciphertext: ciphertext, nonce: nonce);
@@ -187,9 +214,15 @@ class SodiumCryptoService implements CryptoService {
     required EncryptedPayload payload,
   }) {
     final box = _s.crypto.box;
-    final precalculated = box.precalculate(publicKey: theirPublicKey, secretKey: mySecretKey);
+    final precalculated = box.precalculate(
+      publicKey: theirPublicKey,
+      secretKey: mySecretKey,
+    );
     try {
-      return precalculated.openEasy(cipherText: payload.ciphertext, nonce: payload.nonce);
+      return precalculated.openEasy(
+        cipherText: payload.ciphertext,
+        nonce: payload.nonce,
+      );
     } finally {
       precalculated.dispose();
     }

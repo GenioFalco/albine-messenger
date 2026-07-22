@@ -8,7 +8,10 @@ import '../../domain/models.dart';
 import 'signal_local_store.dart';
 
 class SignalMessageEnvelope {
-  const SignalMessageEnvelope({required this.serialized, required this.messageType});
+  const SignalMessageEnvelope({
+    required this.serialized,
+    required this.messageType,
+  });
   final Uint8List serialized;
   final int messageType;
 }
@@ -19,10 +22,13 @@ class SignalMessageEnvelope {
 /// establishing/using a Double Ratchet session per contact via
 /// `libsignal_protocol_dart` (X3DH + Double Ratchet + XEdDSA).
 class SignalService {
-  SignalService({required SignalLocalStore store, required SignalDirectoryRepository directory, required String myUserId})
-    : _store = store,
-      _directory = directory,
-      _myUserId = myUserId;
+  SignalService({
+    required SignalLocalStore store,
+    required SignalDirectoryRepository directory,
+    required String myUserId,
+  }) : _store = store,
+       _directory = directory,
+       _myUserId = myUserId;
 
   final SignalLocalStore _store;
   final SignalDirectoryRepository _directory;
@@ -75,7 +81,9 @@ class SignalService {
   Future<void> ensureBootstrapped(Uint8List identitySecretKeyBytes) {
     return _withLock('bootstrap:$_myUserId', () async {
       if (!await _store.hasIdentity()) {
-        final identityKeyPair = generateIdentityKeyPairFromPrivate(identitySecretKeyBytes);
+        final identityKeyPair = generateIdentityKeyPairFromPrivate(
+          identitySecretKeyBytes,
+        );
         final registrationId = generateRegistrationId(false);
         await _store.saveIdentityKeyPair(identityKeyPair, registrationId);
         await _directory.upsertRegistrationId(_myUserId, registrationId);
@@ -87,11 +95,15 @@ class SignalService {
     });
   }
 
-  Future<void> _rotateSignedPreKeyIfNeeded(IdentityKeyPair identityKeyPair) async {
+  Future<void> _rotateSignedPreKeyIfNeeded(
+    IdentityKeyPair identityKeyPair,
+  ) async {
     final currentId = await _store.currentSignedPreKeyId();
     if (currentId != null) {
       final record = await _store.loadSignedPreKey(currentId);
-      final age = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(record.timestamp.toInt()));
+      final age = DateTime.now().difference(
+        DateTime.fromMillisecondsSinceEpoch(record.timestamp.toInt()),
+      );
       if (age < _signedPreKeyMaxAge) return;
     }
 
@@ -126,7 +138,10 @@ class SignalService {
   /// — the caller should fall back to the legacy crypto_box path for this
   /// send. Any other failure (network error, invalid signature, ...)
   /// propagates instead of silently downgrading an otherwise-viable send.
-  Future<SignalMessageEnvelope?> encryptForContact(AppProfile peer, Uint8List plaintext) {
+  Future<SignalMessageEnvelope?> encryptForContact(
+    AppProfile peer,
+    Uint8List plaintext,
+  ) {
     return _withLock(_contactLockKey(peer.id), () async {
       final address = SignalProtocolAddress(peer.id, 1);
 
@@ -138,23 +153,35 @@ class SignalService {
           bundleRow.registrationId,
           1,
           bundleRow.oneTimePreKeyId,
-          bundleRow.oneTimePreKeyPublic == null ? null : Curve.decodePoint(bundleRow.oneTimePreKeyPublic!, 0),
+          bundleRow.oneTimePreKeyPublic == null
+              ? null
+              : Curve.decodePoint(bundleRow.oneTimePreKeyPublic!, 0),
           bundleRow.signedPreKeyId,
           Curve.decodePoint(bundleRow.signedPreKeyPublic, 0),
           bundleRow.signedPreKeySignature,
           IdentityKey(DjbECPublicKey(peer.identityPubkey)),
         );
 
-        await SessionBuilder.fromSignalStore(_store, address).processPreKeyBundle(bundle);
+        await SessionBuilder.fromSignalStore(
+          _store,
+          address,
+        ).processPreKeyBundle(bundle);
       }
 
       final cipher = SessionCipher.fromStore(_store, address);
       final message = await cipher.encrypt(plaintext);
-      return SignalMessageEnvelope(serialized: message.serialize(), messageType: message.getType());
+      return SignalMessageEnvelope(
+        serialized: message.serialize(),
+        messageType: message.getType(),
+      );
     });
   }
 
-  Future<Uint8List> decryptFromContact(String peerId, Uint8List ciphertext, int messageType) {
+  Future<Uint8List> decryptFromContact(
+    String peerId,
+    Uint8List ciphertext,
+    int messageType,
+  ) {
     return _withLock(_contactLockKey(peerId), () async {
       final address = SignalProtocolAddress(peerId, 1);
       final cipher = SessionCipher.fromStore(_store, address);

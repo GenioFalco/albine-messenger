@@ -33,7 +33,10 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
     });
     final error = await ref
         .read(sessionControllerProvider.notifier)
-        .setUpProfile(username: _usernameController.text, displayName: _displayNameController.text);
+        .setUpProfile(
+          username: _usernameController.text,
+          displayName: _displayNameController.text,
+        );
     if (mounted) {
       setState(() {
         _loading = false;
@@ -59,9 +62,8 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                   children: [
                     Text(
                       'Почти готово',
-                      style: Theme.of(
-                        context,
-                      ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -75,13 +77,20 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                       autofocus: true,
                     ),
                     const SizedBox(height: 12),
-                    LabeledField(label: 'Отображаемое имя', controller: _displayNameController),
+                    LabeledField(
+                      label: 'Отображаемое имя',
+                      controller: _displayNameController,
+                    ),
                     if (_error != null) ...[
                       const SizedBox(height: 12),
                       AppErrorText(_error!),
                     ],
                     const SizedBox(height: 20),
-                    AppButton(label: 'Продолжить', loading: _loading, onPressed: _submit),
+                    AppButton(
+                      label: 'Продолжить',
+                      loading: _loading,
+                      onPressed: _submit,
+                    ),
                   ],
                 ),
               ),

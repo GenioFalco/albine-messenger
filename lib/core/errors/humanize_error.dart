@@ -22,13 +22,15 @@ String _humanizeAuth(AuthException e) {
         'временно ограничивает отправку писем. Подожди немного (обычно '
         'помогает через несколько минут) и попробуй снова.';
   }
-  if (code == 'invalid_credentials' || message.contains('invalid login credentials')) {
+  if (code == 'invalid_credentials' ||
+      message.contains('invalid login credentials')) {
     return 'Неверный email или пароль.';
   }
   if (code == 'user_already_exists' || message.contains('already registered')) {
     return 'Этот email уже зарегистрирован — попробуй войти.';
   }
-  if (code == 'email_not_confirmed' || message.contains('email not confirmed')) {
+  if (code == 'email_not_confirmed' ||
+      message.contains('email not confirmed')) {
     return 'Email не подтверждён — проверь почту и перейди по ссылке из письма.';
   }
   if (message.contains('password') && message.contains('character')) {
@@ -38,7 +40,9 @@ String _humanizeAuth(AuthException e) {
     return 'Проверь, правильно ли указан email.';
   }
 
-  debugPrint('Unhandled AuthException shown to user: code=$code message=${e.message}');
+  debugPrint(
+    'Unhandled AuthException shown to user: code=$code message=${e.message}',
+  );
   return 'Не получилось выполнить это действие. Попробуй ещё раз чуть позже.';
 }
 

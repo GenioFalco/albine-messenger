@@ -39,7 +39,10 @@ class SignalDirectoryRepository {
   final SupabaseClient _client;
 
   Future<void> upsertRegistrationId(String userId, int registrationId) {
-    return _client.from('profiles').update({'signal_registration_id': registrationId}).eq('id', userId);
+    return _client
+        .from('profiles')
+        .update({'signal_registration_id': registrationId})
+        .eq('id', userId);
   }
 
   Future<void> upsertSignedPreKey({
@@ -58,15 +61,25 @@ class SignalDirectoryRepository {
   }
 
   Future<int> countOwnOneTimePreKeys(String userId) async {
-    final rows = await _client.from('one_time_prekeys').select('key_id').eq('user_id', userId);
+    final rows = await _client
+        .from('one_time_prekeys')
+        .select('key_id')
+        .eq('user_id', userId);
     return rows.length;
   }
 
-  Future<void> insertOneTimePreKeys(String userId, List<PreKeyRecord> records) async {
+  Future<void> insertOneTimePreKeys(
+    String userId,
+    List<PreKeyRecord> records,
+  ) async {
     if (records.isEmpty) return;
     await _client.from('one_time_prekeys').insert([
       for (final r in records)
-        {'user_id': userId, 'key_id': r.id, 'public_key': base64Encode(r.getKeyPair().publicKey.serialize())},
+        {
+          'user_id': userId,
+          'key_id': r.id,
+          'public_key': base64Encode(r.getKeyPair().publicKey.serialize()),
+        },
     ]);
   }
 
@@ -76,7 +89,11 @@ class SignalDirectoryRepository {
     final registrationId = peer.signalRegistrationId;
     if (registrationId == null) return null;
 
-    final signedRow = await _client.from('signed_prekeys').select().eq('user_id', peer.id).maybeSingle();
+    final signedRow = await _client
+        .from('signed_prekeys')
+        .select()
+        .eq('user_id', peer.id)
+        .maybeSingle();
     if (signedRow == null) return null;
 
     // A one-time prekey is an optional X3DH ingredient (stronger forward
@@ -85,7 +102,10 @@ class SignalDirectoryRepository {
     // available" instead of aborting the whole handshake over it.
     Map<String, dynamic>? otp;
     try {
-      final claimed = await _client.rpc('claim_one_time_prekey', params: {'target_user_id': peer.id});
+      final claimed = await _client.rpc(
+        'claim_one_time_prekey',
+        params: {'target_user_id': peer.id},
+      );
       if (claimed is List && claimed.isNotEmpty) {
         otp = claimed.first as Map<String, dynamic>;
       }
@@ -99,7 +119,9 @@ class SignalDirectoryRepository {
       signedPreKeyPublic: base64Decode(signedRow['public_key'] as String),
       signedPreKeySignature: base64Decode(signedRow['signature'] as String),
       oneTimePreKeyId: otp == null ? null : otp['key_id'] as int,
-      oneTimePreKeyPublic: otp == null ? null : base64Decode(otp['public_key'] as String),
+      oneTimePreKeyPublic: otp == null
+          ? null
+          : base64Decode(otp['public_key'] as String),
     );
   }
 }

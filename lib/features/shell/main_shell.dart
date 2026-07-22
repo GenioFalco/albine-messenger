@@ -41,7 +41,10 @@ class _WideLayout extends ConsumerWidget {
         children: [
           SizedBox(
             width: 360,
-            child: SafeArea(right: false, child: const ConversationsScreen(embedded: true)),
+            child: SafeArea(
+              right: false,
+              child: const ConversationsScreen(embedded: true),
+            ),
           ),
           VerticalDivider(width: 1, color: colors.border),
           Expanded(
@@ -50,7 +53,11 @@ class _WideLayout extends ConsumerWidget {
                 : ChatScreen(
                     key: ValueKey(selectedId),
                     conversationId: selectedId,
-                    onBack: () => ref.read(selectedConversationIdProvider.notifier).state = null,
+                    onBack: () =>
+                        ref
+                                .read(selectedConversationIdProvider.notifier)
+                                .state =
+                            null,
                   ),
           ),
         ],
@@ -70,9 +77,16 @@ class _EmptyDetail extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.chat_bubble_outline, size: 48, color: colors.textSecondary),
+          Icon(
+            Icons.chat_bubble_outline,
+            size: 48,
+            color: colors.textSecondary,
+          ),
           const SizedBox(height: 12),
-          Text('Выбери чат, чтобы начать переписку', style: TextStyle(color: colors.textSecondary)),
+          Text(
+            'Выбери чат, чтобы начать переписку',
+            style: TextStyle(color: colors.textSecondary),
+          ),
         ],
       ),
     );

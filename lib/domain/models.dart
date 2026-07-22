@@ -104,6 +104,7 @@ class ChatMessage {
     this.mediaNonce,
     this.mediaSizeBytes,
     this.mediaMimeHint,
+    this.readAt,
   });
 
   final String id;
@@ -171,6 +172,12 @@ class ChatMessage {
   /// without a schema change).
   final String? mediaMimeHint;
 
+  /// Set the first time any other conversation member reads this message —
+  /// drives the single-check/double-check indicator. See
+  /// `0009_read_receipts.sql` for why this is one timestamp rather than a
+  /// per-member matrix.
+  final DateTime? readAt;
+
   bool get isMedia => contentType == 'image' || contentType == 'file';
 
   factory ChatMessage.fromRow(Map<String, dynamic> row) => ChatMessage(
@@ -183,15 +190,24 @@ class ChatMessage {
     createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
     protocol: row['protocol'] as String? ?? 'crypto_box',
     signalMessageType: row['signal_message_type'] as int?,
-    deletedAt: row['deleted_at'] == null ? null : DateTime.parse(row['deleted_at'] as String).toLocal(),
+    deletedAt: row['deleted_at'] == null
+        ? null
+        : DateTime.parse(row['deleted_at'] as String).toLocal(),
     replyToId: row['reply_to_id'] as String?,
-    pinnedAt: row['pinned_at'] == null ? null : DateTime.parse(row['pinned_at'] as String).toLocal(),
+    pinnedAt: row['pinned_at'] == null
+        ? null
+        : DateTime.parse(row['pinned_at'] as String).toLocal(),
     forwardedFromSenderId: row['forwarded_from_sender_id'] as String?,
     editsMessageId: row['edits_message_id'] as String?,
     mediaObjectPath: row['media_object_path'] as String?,
     mediaWrappedKey: row['media_wrapped_key'] as String?,
-    mediaNonce: row['media_nonce'] == null ? null : base64Decode(row['media_nonce'] as String),
+    mediaNonce: row['media_nonce'] == null
+        ? null
+        : base64Decode(row['media_nonce'] as String),
     mediaSizeBytes: row['media_size_bytes'] as int?,
     mediaMimeHint: row['media_mime_hint'] as String?,
+    readAt: row['read_at'] == null
+        ? null
+        : DateTime.parse(row['read_at'] as String).toLocal(),
   );
 }

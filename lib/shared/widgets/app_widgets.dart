@@ -65,29 +65,28 @@ Future<T?> showBlurredModalSheet<T>({
         );
       }
 
-      final screenSize = MediaQuery.sizeOf(dialogContext);
+      // The old version guessed the card's height (a "does 320px fit below?"
+      // heuristic) to decide above-vs-below, then positioned it with a bare
+      // Positioned(top / bottom) — which never actually clamps to the
+      // screen, so a wrong guess (a short 2-action menu, a long message
+      // preview, the on-screen keyboard eating vertical space) could place
+      // it partly or fully off-screen with nothing to pull it back.
+      // CustomSingleChildLayout hands the delegate the card's *real*
+      // measured size before positioning it, and the delegate clamps the
+      // result to the available (keyboard-safe) viewport — it physically
+      // cannot end up off-screen regardless of content size.
+      final viewInsets = MediaQuery.viewInsetsOf(dialogContext);
       final viewPadding = MediaQuery.paddingOf(dialogContext);
-      const gap = 8.0;
-      // Rough space budget for the card — without knowing its real height
-      // ahead of time (it depends on the message text + how many actions
-      // apply), this is just a "does it comfortably fit below" heuristic;
-      // worst case it still ends up on whichever side has more room.
-      const wantsSpace = 320.0;
-      final spaceBelow =
-          screenSize.height - anchorRect.bottom - viewPadding.bottom - gap;
-      final spaceAbove = anchorRect.top - viewPadding.top - gap;
-      final showBelow = spaceBelow >= wantsSpace || spaceBelow >= spaceAbove;
-
-      return Stack(
-        children: [
-          Positioned(
-            top: showBelow ? anchorRect.bottom + gap : null,
-            bottom: showBelow ? null : screenSize.height - anchorRect.top + gap,
-            left: anchorAlignRight ? null : 12,
-            right: anchorAlignRight ? 12 : null,
-            child: content,
-          ),
-        ],
+      return CustomSingleChildLayout(
+        delegate: _AnchoredSheetLayoutDelegate(
+          anchorRect: anchorRect,
+          alignRight: anchorAlignRight,
+          safeTop: viewPadding.top,
+          // Keyboard-safe bottom bound — if it's open when the menu appears,
+          // the card must clamp above it, not behind it.
+          safeBottom: viewInsets.bottom + viewPadding.bottom,
+        ),
+        child: content,
       );
     },
     transitionBuilder: (context, animation, secondaryAnimation, child) {
@@ -123,6 +122,67 @@ Future<T?> showBlurredModalSheet<T>({
       );
     },
   );
+}
+
+/// Positions [showBlurredModalSheet]'s anchored card using the card's *real*
+/// measured size (via [CustomSingleChildLayout]) instead of a guessed
+/// height — below the anchor if there's room, above it otherwise, and always
+/// clamped fully inside `[safeTop, size.height - safeBottom]` /
+/// `[gap, size.width - gap]` so it can never end up partly or fully
+/// off-screen no matter how tall the content turns out to be or where the
+/// anchor sits.
+class _AnchoredSheetLayoutDelegate extends SingleChildLayoutDelegate {
+  const _AnchoredSheetLayoutDelegate({
+    required this.anchorRect,
+    required this.alignRight,
+    required this.safeTop,
+    required this.safeBottom,
+  });
+
+  final Rect anchorRect;
+  final bool alignRight;
+  final double safeTop;
+  final double safeBottom;
+
+  static const _gap = 8.0;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
+    return BoxConstraints.loose(constraints.biggest);
+  }
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    final lowestTop = size.height - safeBottom - childSize.height - _gap;
+    final spaceBelow = size.height - safeBottom - anchorRect.bottom - _gap;
+    final spaceAbove = anchorRect.top - safeTop - _gap;
+    final showBelow =
+        spaceBelow >= childSize.height || spaceBelow >= spaceAbove;
+
+    final rawTop = showBelow
+        ? anchorRect.bottom + _gap
+        : anchorRect.top - _gap - childSize.height;
+    final top = rawTop.clamp(
+      safeTop + _gap,
+      lowestTop < safeTop + _gap ? safeTop + _gap : lowestTop,
+    );
+
+    final rawLeft = alignRight
+        ? anchorRect.right - childSize.width
+        : anchorRect.left;
+    final lowestLeft = size.width - childSize.width - _gap;
+    final left = rawLeft.clamp(_gap, lowestLeft < _gap ? _gap : lowestLeft);
+
+    return Offset(left, top);
+  }
+
+  @override
+  bool shouldRelayout(covariant _AnchoredSheetLayoutDelegate oldDelegate) {
+    return oldDelegate.anchorRect != anchorRect ||
+        oldDelegate.alignRight != alignRight ||
+        oldDelegate.safeTop != safeTop ||
+        oldDelegate.safeBottom != safeBottom;
+  }
 }
 
 /// Plain background every screen sits on.

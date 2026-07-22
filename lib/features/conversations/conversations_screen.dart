@@ -163,7 +163,9 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               ActionSheetTile(
-                icon: convo.isPinned ? CupertinoIcons.pin_slash : CupertinoIcons.pin,
+                icon: convo.isPinned
+                    ? CupertinoIcons.pin_slash
+                    : CupertinoIcons.pin,
                 label: convo.isPinned ? 'Открепить' : 'Закрепить',
                 onTap: () {
                   Navigator.of(sheetContext).pop();
@@ -171,7 +173,9 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
                 },
               ),
               ActionSheetTile(
-                icon: convo.muted ? CupertinoIcons.bell : CupertinoIcons.bell_slash,
+                icon: convo.muted
+                    ? CupertinoIcons.bell
+                    : CupertinoIcons.bell_slash,
                 label: convo.muted ? 'Включить звук' : 'Отключить звук',
                 onTap: () {
                   Navigator.of(sheetContext).pop();
@@ -393,7 +397,9 @@ class _ConversationTile extends StatelessWidget {
               onPressed: (_) => onPin(),
               backgroundColor: colors.accent,
               foregroundColor: colors.textOnAccent,
-              icon: convo.isPinned ? CupertinoIcons.pin_slash : CupertinoIcons.pin,
+              icon: convo.isPinned
+                  ? CupertinoIcons.pin_slash
+                  : CupertinoIcons.pin,
               label: convo.isPinned ? 'Открепить' : 'Закрепить',
               borderRadius: BorderRadius.circular(colors.radius),
             ),
@@ -407,7 +413,9 @@ class _ConversationTile extends StatelessWidget {
               onPressed: (_) => onMute(),
               backgroundColor: Colors.orange,
               foregroundColor: Colors.white,
-              icon: convo.muted ? CupertinoIcons.bell : CupertinoIcons.bell_slash,
+              icon: convo.muted
+                  ? CupertinoIcons.bell
+                  : CupertinoIcons.bell_slash,
               label: convo.muted ? 'Вкл. звук' : 'Без звука',
               borderRadius: BorderRadius.circular(colors.radius),
             ),

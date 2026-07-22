@@ -20,10 +20,9 @@ class AlbineApp extends ConsumerWidget {
       // designed to absorb. Clamp it to a sane range instead of ignoring
       // accessibility scaling entirely.
       builder: (context, child) {
-        final clamped = MediaQuery.textScalerOf(context).clamp(
-          minScaleFactor: 1,
-          maxScaleFactor: 1.3,
-        );
+        final clamped = MediaQuery.textScalerOf(
+          context,
+        ).clamp(minScaleFactor: 1, maxScaleFactor: 1.3);
         return MediaQuery(
           data: MediaQuery.of(context).copyWith(textScaler: clamped),
           child: child!,

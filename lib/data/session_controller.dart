@@ -36,13 +36,21 @@ enum SessionStatus {
 }
 
 class SessionState {
-  const SessionState({required this.status, this.profile, this.identityKeyPair});
+  const SessionState({
+    required this.status,
+    this.profile,
+    this.identityKeyPair,
+  });
 
   final SessionStatus status;
   final AppProfile? profile;
   final IdentityKeyPair? identityKeyPair;
 
-  SessionState _copyWith({SessionStatus? status, AppProfile? profile, IdentityKeyPair? identityKeyPair}) {
+  SessionState _copyWith({
+    SessionStatus? status,
+    AppProfile? profile,
+    IdentityKeyPair? identityKeyPair,
+  }) {
     return SessionState(
       status: status ?? this.status,
       profile: profile ?? this.profile,
@@ -82,7 +90,10 @@ class SessionController extends Notifier<SessionState> {
   /// change that state would be circular; a plain one-shot instance avoids
   /// that entirely. Failure here must never block reaching [SessionStatus.ready]
   /// — legacy crypto_box sending still works even if this hasn't run yet.
-  Future<void> _bootstrapSignal(String userId, Uint8List identitySecretKeyBytes) async {
+  Future<void> _bootstrapSignal(
+    String userId,
+    Uint8List identitySecretKeyBytes,
+  ) async {
     try {
       final signal = SignalService(
         store: SignalLocalStore(userId),
@@ -137,7 +148,11 @@ class SessionController extends Notifier<SessionState> {
         expectedPublicKey: profile.identityPubkey,
       );
       if (keyPair != null) {
-        state = SessionState(status: SessionStatus.ready, profile: profile, identityKeyPair: keyPair);
+        state = SessionState(
+          status: SessionStatus.ready,
+          profile: profile,
+          identityKeyPair: keyPair,
+        );
         unawaited(_bootstrapSignal(user.id, unlockedSecretBytes));
         return;
       }
@@ -173,7 +188,10 @@ class SessionController extends Notifier<SessionState> {
   /// wrapped under the *old* password there, so attempting it would just
   /// reject the correct new password with "wrong password" instead of
   /// falling through to generate (and re-back-up) a fresh key.
-  Future<String?> unlock(String password, {bool trustServerBackup = true}) async {
+  Future<String?> unlock(
+    String password, {
+    bool trustServerBackup = true,
+  }) async {
     final user = _client.auth.currentUser;
     final profile = state.profile;
     if (user == null || profile == null) return 'Внутренняя ошибка сессии';
@@ -181,7 +199,10 @@ class SessionController extends Notifier<SessionState> {
     final wrapped = _wrappedKeyCache;
     if (wrapped != null) {
       try {
-        final secretBytes = _crypto.unwrapSecret(wrapped: wrapped, passphrase: password);
+        final secretBytes = _crypto.unwrapSecret(
+          wrapped: wrapped,
+          passphrase: password,
+        );
         final keyPair = _crypto.restoreIdentityKeyPair(
           secretKeyBytes: secretBytes,
           expectedPublicKey: profile.identityPubkey,
@@ -191,7 +212,10 @@ class SessionController extends Notifier<SessionState> {
           // anymore (e.g. it was regenerated from another device). Fall
           // through to the server-side backup below.
         } else {
-          state = state._copyWith(status: SessionStatus.ready, identityKeyPair: keyPair);
+          state = state._copyWith(
+            status: SessionStatus.ready,
+            identityKeyPair: keyPair,
+          );
           // Accounts created before M1.5 (or that have only ever taken this
           // fast path) never hit the fresh-keygen branch below, which is
           // the only place that used to upload a backup — so their key was
@@ -209,11 +233,16 @@ class SessionController extends Notifier<SessionState> {
 
     // New device, or the local key no longer matches: try the server-side
     // encrypted backup before ever generating a fresh keypair.
-    final backup = trustServerBackup ? await _keyBackup.fetchBackup(user.id) : null;
+    final backup = trustServerBackup
+        ? await _keyBackup.fetchBackup(user.id)
+        : null;
     if (backup != null) {
       Uint8List secretBytes;
       try {
-        secretBytes = _crypto.unwrapSecret(wrapped: backup, passphrase: password);
+        secretBytes = _crypto.unwrapSecret(
+          wrapped: backup,
+          passphrase: password,
+        );
       } catch (_) {
         // A backup exists for this account — never fall through to
         // fresh-keygen here, or a wrong password on a new device would
@@ -227,7 +256,10 @@ class SessionController extends Notifier<SessionState> {
       if (keyPair != null) {
         await _storage.saveWrappedPrivateKey(user.id, backup);
         _wrappedKeyCache = backup;
-        state = state._copyWith(status: SessionStatus.ready, identityKeyPair: keyPair);
+        state = state._copyWith(
+          status: SessionStatus.ready,
+          identityKeyPair: keyPair,
+        );
         unawaited(_storage.saveUnlockedSecretKey(user.id, secretBytes));
         unawaited(_bootstrapSignal(user.id, secretBytes));
         return null;
@@ -243,14 +275,20 @@ class SessionController extends Notifier<SessionState> {
     // happen again for this account.
     final keyPair = _crypto.generateIdentityKeyPair();
     try {
-      await _profiles.updateIdentityPubkey(userId: user.id, identityPubkey: keyPair.publicKey);
+      await _profiles.updateIdentityPubkey(
+        userId: user.id,
+        identityPubkey: keyPair.publicKey,
+      );
     } catch (e) {
       keyPair.dispose();
       return 'Не удалось создать ключ для этого устройства. ${humanizeError(e)}';
     }
 
     final freshSecretBytes = keyPair.secretKey.extractBytes();
-    final newWrapped = _crypto.wrapSecret(secret: freshSecretBytes, passphrase: password);
+    final newWrapped = _crypto.wrapSecret(
+      secret: freshSecretBytes,
+      passphrase: password,
+    );
     await _storage.saveWrappedPrivateKey(user.id, newWrapped);
     await _keyBackup.upsertBackup(user.id, newWrapped);
     _wrappedKeyCache = newWrapped;
@@ -290,14 +328,19 @@ class SessionController extends Notifier<SessionState> {
 
   /// First-ever login: creates the profile and the identity keypair, using
   /// the password already cached from sign-up via [cachePassword].
-  Future<String?> setUpProfile({required String username, required String displayName}) async {
+  Future<String?> setUpProfile({
+    required String username,
+    required String displayName,
+  }) async {
     final user = _client.auth.currentUser;
     final password = _pendingPassword;
     if (user == null) return 'Нет активной сессии';
     if (password == null) return 'Сессия истекла — войди снова';
 
-    if (username.trim().length < 3) return 'Имя пользователя — минимум 3 символа';
-    if (await _profiles.isUsernameTaken(username)) return 'Это имя пользователя уже занято';
+    if (username.trim().length < 3)
+      return 'Имя пользователя — минимум 3 символа';
+    if (await _profiles.isUsernameTaken(username))
+      return 'Это имя пользователя уже занято';
 
     final keyPair = _crypto.generateIdentityKeyPair();
     AppProfile profile;
@@ -314,12 +357,19 @@ class SessionController extends Notifier<SessionState> {
     }
 
     final secretBytes = keyPair.secretKey.extractBytes();
-    final wrapped = _crypto.wrapSecret(secret: secretBytes, passphrase: password);
+    final wrapped = _crypto.wrapSecret(
+      secret: secretBytes,
+      passphrase: password,
+    );
     await _storage.saveWrappedPrivateKey(user.id, wrapped);
     await _keyBackup.upsertBackup(user.id, wrapped);
     _pendingPassword = null;
 
-    state = SessionState(status: SessionStatus.ready, profile: profile, identityKeyPair: keyPair);
+    state = SessionState(
+      status: SessionStatus.ready,
+      profile: profile,
+      identityKeyPair: keyPair,
+    );
     unawaited(_storage.saveUnlockedSecretKey(user.id, secretBytes));
     unawaited(_bootstrapSignal(user.id, secretBytes));
     return null;
@@ -341,13 +391,17 @@ class SessionController extends Notifier<SessionState> {
     final user = _client.auth.currentUser;
     final profile = state.profile;
     final currentKeyPair = state.identityKeyPair;
-    if (user == null || profile == null || currentKeyPair == null) return 'Внутренняя ошибка сессии';
+    if (user == null || profile == null || currentKeyPair == null)
+      return 'Внутренняя ошибка сессии';
 
     final wrapped = await _storage.loadWrappedPrivateKey(user.id);
     if (wrapped == null) return 'Внутренняя ошибка сессии';
     Uint8List currentSecretBytes;
     try {
-      currentSecretBytes = _crypto.unwrapSecret(wrapped: wrapped, passphrase: password);
+      currentSecretBytes = _crypto.unwrapSecret(
+        wrapped: wrapped,
+        passphrase: password,
+      );
     } catch (_) {
       return 'Неверный пароль';
     }
@@ -361,7 +415,10 @@ class SessionController extends Notifier<SessionState> {
 
     final newKeyPair = _crypto.generateIdentityKeyPair();
     try {
-      await _profiles.updateIdentityPubkey(userId: user.id, identityPubkey: newKeyPair.publicKey);
+      await _profiles.updateIdentityPubkey(
+        userId: user.id,
+        identityPubkey: newKeyPair.publicKey,
+      );
     } catch (e) {
       verifyPair.dispose();
       newKeyPair.dispose();
@@ -374,11 +431,18 @@ class SessionController extends Notifier<SessionState> {
     // unopenable (crypto_box_seal_open fails outright, not gracefully) the
     // moment the rotation finishes. Must happen while `verifyPair` (the old
     // key) is still alive.
-    await _reSealGroupKeys(userId: user.id, oldKeyPair: verifyPair, newPublicKey: newKeyPair.publicKey);
+    await _reSealGroupKeys(
+      userId: user.id,
+      oldKeyPair: verifyPair,
+      newPublicKey: newKeyPair.publicKey,
+    );
     verifyPair.dispose();
 
     final newSecretBytes = newKeyPair.secretKey.extractBytes();
-    final newWrapped = _crypto.wrapSecret(secret: newSecretBytes, passphrase: password);
+    final newWrapped = _crypto.wrapSecret(
+      secret: newSecretBytes,
+      passphrase: password,
+    );
     await _storage.saveWrappedPrivateKey(user.id, newWrapped);
     await _storage.saveUnlockedSecretKey(user.id, newSecretBytes);
     await _keyBackup.upsertBackup(user.id, newWrapped);
@@ -422,8 +486,14 @@ class SessionController extends Notifier<SessionState> {
       final wrapped = row['wrapped_group_key'] as String?;
       if (wrapped == null) continue;
       try {
-        final groupKey = _crypto.openSealedGroupKey(myKeyPair: oldKeyPair, sealed: base64Decode(wrapped));
-        final resealed = _crypto.sealGroupKeyForMember(memberPublicKey: newPublicKey, groupKey: groupKey);
+        final groupKey = _crypto.openSealedGroupKey(
+          myKeyPair: oldKeyPair,
+          sealed: base64Decode(wrapped),
+        );
+        final resealed = _crypto.sealGroupKeyForMember(
+          memberPublicKey: newPublicKey,
+          groupKey: groupKey,
+        );
         groupKey.dispose();
         await _client
             .from('conversation_members')
@@ -451,6 +521,5 @@ class SessionController extends Notifier<SessionState> {
   }
 }
 
-final sessionControllerProvider = NotifierProvider<SessionController, SessionState>(
-  SessionController.new,
-);
+final sessionControllerProvider =
+    NotifierProvider<SessionController, SessionState>(SessionController.new);

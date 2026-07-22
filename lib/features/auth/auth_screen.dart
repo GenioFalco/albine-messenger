@@ -50,7 +50,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         final response = await auth.signUp(email: email, password: password);
         if (response.session == null) {
           setState(() {
-            _info = 'Письмо с подтверждением отправлено на $email. Подтверди адрес и войди.';
+            _info =
+                'Письмо с подтверждением отправлено на $email. Подтверди адрес и войди.';
             _isSignUp = false;
           });
         } else {
@@ -79,7 +80,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     });
     try {
       await ref.read(authRepositoryProvider).resetPasswordForEmail(email);
-      setState(() => _info = 'Письмо для восстановления пароля отправлено на $email');
+      setState(
+        () => _info = 'Письмо для восстановления пароля отправлено на $email',
+      );
     } catch (e) {
       setState(() => _error = humanizeError(e));
     }
@@ -103,9 +106,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   Text(
                     'Albine',
                     textAlign: TextAlign.center,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const SizedBox(height: 28),
                   FormPanel(
@@ -116,13 +119,14 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                         Text(
                           _isSignUp ? 'Регистрация' : 'Вход в аккаунт',
                           textAlign: TextAlign.center,
-                          style: Theme.of(
-                            context,
-                          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.w700),
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          _isSignUp ? 'Придумай email и пароль' : 'Введите данные для входа',
+                          _isSignUp
+                              ? 'Придумай email и пароль'
+                              : 'Введите данные для входа',
                           textAlign: TextAlign.center,
                           style: TextStyle(color: colors.textSecondary),
                         ),
@@ -145,7 +149,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           const SizedBox(height: 10),
                           Align(
                             alignment: Alignment.centerRight,
-                            child: AppLink(text: 'Забыли пароль?', onTap: _forgotPassword),
+                            child: AppLink(
+                              text: 'Забыли пароль?',
+                              onTap: _forgotPassword,
+                            ),
                           ),
                         ],
                         if (_error != null) ...[
