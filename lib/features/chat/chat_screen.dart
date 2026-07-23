@@ -1936,48 +1936,29 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
   }
 
   /// Enlarged versions of the same forward/delete icons from the message
-  /// long-press menu, directly reachable without opening "...", same as
-  /// Telegram's viewer bottom bar. Video keeps its own bottom transport
-  /// controls instead — reachable via "..." there rather than doubling up
-  /// two bottom bars.
+  /// long-press menu, directly reachable without opening "..." — shared
+  /// between photo and video so the chrome is identical either way. Save
+  /// stays "..."-only (it was redundant to have it here too).
   Widget _bottomActionBar() {
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 0,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _circleIconButton(
-                icon: CupertinoIcons.arrowshape_turn_up_right,
-                onPressed: _handleForward,
-                diameter: 52,
-                iconSize: 26,
-                tooltip: 'Переслать',
-              ),
-              _circleIconButton(
-                icon: CupertinoIcons.arrow_down_to_line,
-                onPressed: widget.onDownload,
-                diameter: 52,
-                iconSize: 26,
-                tooltip: 'Сохранить',
-              ),
-              if (widget.mine)
-                _circleIconButton(
-                  icon: CupertinoIcons.delete,
-                  onPressed: _handleDelete,
-                  diameter: 52,
-                  iconSize: 26,
-                  tooltip: 'Удалить',
-                ),
-            ],
-          ),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _circleIconButton(
+          icon: CupertinoIcons.arrowshape_turn_up_right,
+          onPressed: _handleForward,
+          diameter: 52,
+          iconSize: 26,
+          tooltip: 'Переслать',
         ),
-      ),
+        if (widget.mine)
+          _circleIconButton(
+            icon: CupertinoIcons.delete,
+            onPressed: _handleDelete,
+            diameter: 52,
+            iconSize: 26,
+            tooltip: 'Удалить',
+          ),
+      ],
     );
   }
 
@@ -2052,21 +2033,17 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
                     child: SafeArea(
                       top: false,
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            VideoProgressIndicator(
-                              controller,
-                              allowScrubbing: true,
-                              padding: EdgeInsets.zero,
-                              colors: const VideoProgressColors(
-                                playedColor: Colors.white,
-                                bufferedColor: Colors.white38,
-                                backgroundColor: Colors.white24,
-                              ),
+                            _VideoScrubBar(
+                              controller: controller,
+                              accentColor: Theme.of(
+                                context,
+                              ).extension<AlbineColors>()!.accent,
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 2),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -2086,6 +2063,12 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
                                 ),
                               ],
                             ),
+                            const SizedBox(height: 8),
+                            // Same forward/delete bar as the photo viewer —
+                            // identical chrome either way, just fades with
+                            // the rest of the video's transport controls
+                            // instead of being permanently visible.
+                            _bottomActionBar(),
                           ],
                         ),
                       ),
@@ -2162,11 +2145,143 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
                   )
                 : media,
             if (videoReady) Positioned.fill(child: _videoControls(controller)),
-            if (!_isVideo) _bottomActionBar(),
+            if (!_isVideo)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: _bottomActionBar(),
+                  ),
+                ),
+              ),
             _topBar(),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// A bespoke scrub bar — not the stock `VideoProgressIndicator` (a thin flat
+/// line in the library's own default styling), but a thicker rounded track
+/// in the app's own accent color with a draggable thumb that grows slightly
+/// while being dragged. Tap-to-seek and drag-to-scrub both hand-rolled via a
+/// plain `GestureDetector` rather than the built-in widget's own gesture
+/// handling.
+class _VideoScrubBar extends StatefulWidget {
+  const _VideoScrubBar({required this.controller, required this.accentColor});
+
+  final VideoPlayerController controller;
+  final Color accentColor;
+
+  @override
+  State<_VideoScrubBar> createState() => _VideoScrubBarState();
+}
+
+class _VideoScrubBarState extends State<_VideoScrubBar> {
+  bool _dragging = false;
+  double _dragFraction = 0;
+
+  double _fractionFor(VideoPlayerValue value) {
+    final durationMs = value.duration.inMilliseconds;
+    if (durationMs <= 0) return 0;
+    return (value.position.inMilliseconds / durationMs).clamp(0.0, 1.0);
+  }
+
+  void _seekToFraction(double fraction) {
+    final duration = widget.controller.value.duration;
+    widget.controller.seekTo(duration * fraction.clamp(0.0, 1.0));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<VideoPlayerValue>(
+      valueListenable: widget.controller,
+      builder: (context, value, _) {
+        final fraction = _dragging ? _dragFraction : _fractionFor(value);
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            void updateFromDx(double dx) {
+              setState(() => _dragFraction = (dx / width).clamp(0.0, 1.0));
+            }
+
+            final thumbDiameter = _dragging ? 16.0 : 12.0;
+            final thumbX = (width * fraction) - thumbDiameter / 2;
+
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (d) => _seekToFraction(d.localPosition.dx / width),
+              onHorizontalDragStart: (d) {
+                setState(() => _dragging = true);
+                updateFromDx(d.localPosition.dx);
+              },
+              onHorizontalDragUpdate: (d) => updateFromDx(d.localPosition.dx),
+              onHorizontalDragEnd: (_) {
+                _seekToFraction(_dragFraction);
+                setState(() => _dragging = false);
+              },
+              child: SizedBox(
+                width: width,
+                height: 24,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned(
+                      top: 10,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.25),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 10,
+                      left: 0,
+                      width: width * fraction,
+                      child: Container(
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: widget.accentColor,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 12 - thumbDiameter / 2,
+                      left: thumbX,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 120),
+                        width: thumbDiameter,
+                        height: thumbDiameter,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: widget.accentColor,
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black45,
+                              blurRadius: 4,
+                              offset: Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
