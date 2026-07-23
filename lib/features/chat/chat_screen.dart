@@ -1684,7 +1684,11 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
           .then((_) {
             if (!mounted) return;
             setState(() {});
-            controller.play();
+            // Browsers may reject autoplay here (no direct user gesture,
+            // since this runs after an await) — that's fine, the play/pause
+            // icon already reflects the real `isPlaying` state reactively;
+            // just don't leave an unhandled rejection in the console.
+            controller.play().catchError((_) {});
             _resetHideTimer();
           })
           .catchError((_) {});
@@ -1730,7 +1734,7 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
         controller.pause();
         _hideTimer?.cancel();
       } else {
-        controller.play();
+        controller.play().catchError((_) {});
         _resetHideTimer();
       }
       _controlsVisible = true;
@@ -1907,7 +1911,18 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
                               alignment: Alignment.center,
                               children: [
                                 AspectRatio(
-                                  aspectRatio: controller.value.aspectRatio,
+                                  // A zero/NaN aspect ratio (seen briefly on
+                                  // some browsers right as metadata loads)
+                                  // makes AspectRatio collapse to a
+                                  // zero-size box — the video area silently
+                                  // vanishes (just a black screen with the
+                                  // top bar) instead of erroring, since
+                                  // asserts are stripped in release builds.
+                                  aspectRatio:
+                                      controller.value.aspectRatio.isFinite &&
+                                          controller.value.aspectRatio > 0
+                                      ? controller.value.aspectRatio
+                                      : 16 / 9,
                                   child: VideoPlayer(controller),
                                 ),
                                 Positioned.fill(
