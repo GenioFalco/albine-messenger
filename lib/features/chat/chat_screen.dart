@@ -514,7 +514,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     html.Url.revokeObjectUrl(url);
   }
 
-  Future<void> _openMediaViewer(ChatMessage message) async {
+  Future<void> _openMediaViewer(
+    ChatMessage message, {
+    required bool mine,
+    required ConversationSummary conversation,
+  }) async {
     final chat = ref.read(chatRepositoryProvider);
     final bytes = await chat?.fetchAndDecryptMedia(message);
     if (bytes == null) {
@@ -532,7 +536,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       builder: (dialogContext) => _MediaViewerDialog(
         message: message,
         bytes: bytes,
+        title: conversation.displayTitle,
+        mine: mine,
         onDownload: () => _downloadMedia(message),
+        onReply: () => _startReply(message),
+        onForward: () => _forwardMessage(
+          message,
+          chat?.decryptText(
+                message,
+                kind: conversation.kind,
+                peer: conversation.peer,
+              ) ??
+              '',
+        ),
+        onDelete: !mine
+            ? null
+            : () async {
+                setState(() => _locallyDeletedIds.add(message.id));
+                await chat?.deleteMessage(message.id);
+              },
       ),
     );
   }
@@ -542,6 +564,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     required String text,
     required bool mine,
     required AlbineColors colors,
+    required ConversationSummary conversation,
   }) {
     final chat = ref.read(chatRepositoryProvider);
     if (message.contentType == 'image' && chat != null) {
@@ -567,7 +590,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // Tapping opens the full-screen viewer (close + download) instead
           // of just sitting inline forever — matches every other messenger.
           return GestureDetector(
-            onTap: () => _openMediaViewer(message),
+            onTap: () => _openMediaViewer(
+              message,
+              mine: mine,
+              conversation: conversation,
+            ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(14),
               child: Image.memory(bytes, fit: BoxFit.cover, width: 220),
@@ -586,8 +613,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         // A video opens the same full-screen viewer (now with playback);
         // a generic file just downloads straight away — no viewer makes
         // sense for an arbitrary file type.
-        onTap: () =>
-            isVideo ? _openMediaViewer(message) : _downloadMedia(message),
+        onTap: () => isVideo
+            ? _openMediaViewer(message, mine: mine, conversation: conversation)
+            : _downloadMedia(message),
         borderRadius: BorderRadius.circular(10),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1110,6 +1138,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           text: text,
                           mine: mine,
                           colors: colors,
+                          conversation: conversation,
                         );
 
                         final bubbleCore = Container(
@@ -1640,21 +1669,35 @@ class _ForwardPickerSheet extends ConsumerWidget {
   }
 }
 
-/// Full-screen viewer for a tapped photo/video — a black backdrop, the media
-/// centered (pinch-zoomable for photos, playable for video via a blob URL),
-/// a close button, and a download button. Matches what every other
-/// messenger does with an inline attachment instead of leaving it stuck in
-/// the chat bubble forever.
+/// Full-screen viewer for a tapped photo/video, styled after Telegram's own:
+/// a nav-bar-style header (back, conversation title, "..." menu) instead of
+/// a bare X, a bottom action row of enlarged versions of the same icons used
+/// in the message long-press menu, and — for video — real transport controls
+/// (scrub bar, skip ±15s, play/pause) with proper circular icon backgrounds
+/// instead of bare white glyphs floating over the footage.
 class _MediaViewerDialog extends StatefulWidget {
   const _MediaViewerDialog({
     required this.message,
     required this.bytes,
+    required this.title,
+    required this.mine,
     required this.onDownload,
+    required this.onReply,
+    required this.onForward,
+    this.onDelete,
   });
 
   final ChatMessage message;
   final Uint8List bytes;
+  final String title;
+
+  /// Whether *I* sent this message — gates the "Удалить" action, same rule
+  /// as the message long-press menu.
+  final bool mine;
   final VoidCallback onDownload;
+  final VoidCallback onReply;
+  final VoidCallback onForward;
+  final VoidCallback? onDelete;
 
   @override
   State<_MediaViewerDialog> createState() => _MediaViewerDialogState();
@@ -1761,32 +1804,179 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
         : '$minutes:$seconds';
   }
 
+  void _handleReply() {
+    Navigator.of(context).pop();
+    widget.onReply();
+  }
+
+  void _handleForward() {
+    Navigator.of(context).pop();
+    widget.onForward();
+  }
+
+  void _handleDelete() {
+    Navigator.of(context).pop();
+    widget.onDelete?.call();
+  }
+
+  /// "..." menu — same actions/icons as the message long-press menu
+  /// (`_showMessageActions`), just reached from inside the viewer.
+  Future<void> _showMoreMenu() async {
+    await showBlurredModalSheet<void>(
+      context: context,
+      builder: (sheetContext) => Container(
+        margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        decoration: BoxDecoration(
+          color: Theme.of(
+            context,
+          ).extension<AlbineColors>()!.background.withValues(alpha: 0.94),
+          borderRadius: BorderRadius.circular(
+            Theme.of(context).extension<AlbineColors>()!.radius,
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ActionSheetTile(
+                icon: CupertinoIcons.reply,
+                label: 'Ответить',
+                onTap: _handleReply,
+              ),
+              ActionSheetTile(
+                icon: CupertinoIcons.arrow_down_to_line,
+                label: 'Сохранить',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  widget.onDownload();
+                },
+              ),
+              ActionSheetTile(
+                icon: CupertinoIcons.arrowshape_turn_up_right,
+                label: 'Переслать',
+                onTap: _handleForward,
+              ),
+              if (widget.mine)
+                ActionSheetTile(
+                  icon: CupertinoIcons.delete,
+                  label: 'Удалить',
+                  destructive: true,
+                  onTap: _handleDelete,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// A round icon button on a translucent dark backing — Telegram's viewer
+  /// icons all sit on a filled circle, not a bare glyph floating over
+  /// whatever's behind it (which is unreadable over a bright photo/video).
+  /// No blur ("glassmorphism") — just a plain solid translucent fill, as
+  /// asked for.
+  Widget _circleIconButton({
+    required IconData icon,
+    required VoidCallback? onPressed,
+    double diameter = 44,
+    double iconSize = 22,
+    String? tooltip,
+  }) {
+    final button = Material(
+      color: Colors.black.withValues(alpha: 0.4),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onPressed,
+        child: SizedBox(
+          width: diameter,
+          height: diameter,
+          child: Icon(icon, color: Colors.white, size: iconSize),
+        ),
+      ),
+    );
+    return tooltip == null ? button : Tooltip(message: tooltip, child: button);
+  }
+
   Widget _topBar() {
     return Positioned(
       top: 4,
       left: 4,
       right: 4,
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          IconButton(
-            icon: const Icon(
-              CupertinoIcons.xmark,
-              color: Colors.white,
-              size: 26,
-            ),
+          _circleIconButton(
+            icon: CupertinoIcons.back,
             onPressed: () => Navigator.of(context).pop(),
           ),
-          IconButton(
-            icon: const Icon(
-              CupertinoIcons.arrow_down_to_line,
-              color: Colors.white,
-              size: 24,
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(
+                widget.title,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                ),
+              ),
             ),
-            tooltip: 'Скачать',
-            onPressed: widget.onDownload,
+          ),
+          _circleIconButton(
+            icon: CupertinoIcons.ellipsis,
+            onPressed: _showMoreMenu,
           ),
         ],
+      ),
+    );
+  }
+
+  /// Enlarged versions of the same forward/delete icons from the message
+  /// long-press menu, directly reachable without opening "...", same as
+  /// Telegram's viewer bottom bar. Video keeps its own bottom transport
+  /// controls instead — reachable via "..." there rather than doubling up
+  /// two bottom bars.
+  Widget _bottomActionBar() {
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _circleIconButton(
+                icon: CupertinoIcons.arrowshape_turn_up_right,
+                onPressed: _handleForward,
+                diameter: 52,
+                iconSize: 26,
+                tooltip: 'Переслать',
+              ),
+              _circleIconButton(
+                icon: CupertinoIcons.arrow_down_to_line,
+                onPressed: widget.onDownload,
+                diameter: 52,
+                iconSize: 26,
+                tooltip: 'Сохранить',
+              ),
+              if (widget.mine)
+                _circleIconButton(
+                  icon: CupertinoIcons.delete,
+                  onPressed: _handleDelete,
+                  diameter: 52,
+                  iconSize: 26,
+                  tooltip: 'Удалить',
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1800,102 +1990,109 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
           duration: const Duration(milliseconds: 200),
           child: IgnorePointer(
             ignoring: !_controlsVisible,
-            child: Stack(
-              children: [
-                // Dim the video slightly while the transport controls are
-                // up, same as every native player — makes the white
-                // play/pause + skip icons readable over any footage. Also
-                // tappable itself (this now spans the *whole* screen, not
-                // just the video's own box, so there's dim area beside a
-                // narrow/portrait video too) so tapping anywhere still
-                // toggles play/pause like tapping the video does.
-                Positioned.fill(
-                  child: GestureDetector(
-                    onTap: _toggleControlsOrPlayback,
-                    child: Container(
-                      color: Colors.black.withValues(alpha: 0.15),
+            // Cancel the auto-hide clock the instant a finger goes down
+            // anywhere on the controls (e.g. starting a scrub-bar drag) and
+            // only restart it on release — otherwise a 3-second-old timer
+            // could hide the controls (and, via IgnorePointer, stop
+            // receiving input entirely) mid-drag.
+            child: Listener(
+              onPointerDown: (_) => _hideTimer?.cancel(),
+              onPointerUp: (_) => _resetHideTimer(),
+              child: Stack(
+                children: [
+                  // Dim the video slightly while the transport controls are
+                  // up, same as every native player — makes the white
+                  // play/pause + skip icons readable over any footage. Also
+                  // tappable itself (this spans the *whole* screen, not just
+                  // the video's own box, so there's dim area beside a
+                  // narrow/portrait video too) so tapping anywhere still
+                  // toggles play/pause like tapping the video does.
+                  Positioned.fill(
+                    child: GestureDetector(
+                      onTap: _toggleControlsOrPlayback,
+                      child: Container(
+                        color: Colors.black.withValues(alpha: 0.15),
+                      ),
                     ),
                   ),
-                ),
-                Center(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(
-                          CupertinoIcons.gobackward_15,
-                          color: Colors.white,
-                          size: 34,
-                        ),
-                        onPressed: () => _seekBy(const Duration(seconds: -15)),
-                      ),
-                      const SizedBox(width: 24),
-                      IconButton(
-                        icon: Icon(
-                          value.isPlaying
-                              ? CupertinoIcons.pause_fill
-                              : CupertinoIcons.play_fill,
-                          color: Colors.white,
-                          size: 46,
-                        ),
-                        onPressed: _togglePlayPause,
-                      ),
-                      const SizedBox(width: 24),
-                      IconButton(
-                        icon: const Icon(
-                          CupertinoIcons.goforward_15,
-                          color: Colors.white,
-                          size: 34,
-                        ),
-                        onPressed: () => _seekBy(const Duration(seconds: 15)),
-                      ),
-                    ],
-                  ),
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: Column(
+                  Center(
+                    child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        VideoProgressIndicator(
-                          controller,
-                          allowScrubbing: true,
-                          padding: EdgeInsets.zero,
-                          colors: const VideoProgressColors(
-                            playedColor: Colors.white,
-                            bufferedColor: Colors.white38,
-                            backgroundColor: Colors.white24,
-                          ),
+                        _circleIconButton(
+                          icon: CupertinoIcons.gobackward_15,
+                          onPressed: () =>
+                              _seekBy(const Duration(seconds: -15)),
+                          diameter: 52,
+                          iconSize: 26,
                         ),
-                        const SizedBox(height: 4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              _formatDuration(value.position),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                              ),
-                            ),
-                            Text(
-                              _formatDuration(value.duration),
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
+                        const SizedBox(width: 24),
+                        _circleIconButton(
+                          icon: value.isPlaying
+                              ? CupertinoIcons.pause_fill
+                              : CupertinoIcons.play_fill,
+                          onPressed: _togglePlayPause,
+                          diameter: 68,
+                          iconSize: 34,
+                        ),
+                        const SizedBox(width: 24),
+                        _circleIconButton(
+                          icon: CupertinoIcons.goforward_15,
+                          onPressed: () => _seekBy(const Duration(seconds: 15)),
+                          diameter: 52,
+                          iconSize: 26,
                         ),
                       ],
                     ),
                   ),
-                ),
-              ],
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: SafeArea(
+                      top: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            VideoProgressIndicator(
+                              controller,
+                              allowScrubbing: true,
+                              padding: EdgeInsets.zero,
+                              colors: const VideoProgressColors(
+                                playedColor: Colors.white,
+                                bufferedColor: Colors.white38,
+                                backgroundColor: Colors.white24,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  _formatDuration(value.position),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                Text(
+                                  _formatDuration(value.duration),
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -1906,62 +2103,66 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
   @override
   Widget build(BuildContext context) {
     final controller = _videoController;
+    final videoReady =
+        _isVideo && controller != null && controller.value.isInitialized;
+
+    final media = Center(
+      child: _isVideo
+          ? (videoReady
+                ? AspectRatio(
+                    // A zero/NaN aspect ratio (seen briefly on some browsers
+                    // right as metadata loads) makes AspectRatio collapse to
+                    // a zero-size box — the video area silently vanishes
+                    // (just a black screen with the top bar) instead of
+                    // erroring, since asserts are stripped in release
+                    // builds.
+                    aspectRatio:
+                        controller.value.aspectRatio.isFinite &&
+                            controller.value.aspectRatio > 0
+                        ? controller.value.aspectRatio
+                        : 16 / 9,
+                    child: VideoPlayer(controller),
+                  )
+                : const CircularProgressIndicator(color: Colors.white))
+          // `Center` gives an unbounded/loose constraint, and
+          // `InteractiveViewer` doesn't constrain its child either — without
+          // an explicit bounded box here, `Image.memory` has nothing to fit
+          // *into*, so `BoxFit.contain` never actually applies and the photo
+          // renders at its native pixel size (often several thousand px on a
+          // phone photo) instead of scaled to the screen — this is what read
+          // as "opens crooked/wrong": a huge image cropped to whatever
+          // corner happened to land in the viewport.
+          : LayoutBuilder(
+              builder: (context, constraints) => InteractiveViewer(
+                child: SizedBox(
+                  width: constraints.maxWidth,
+                  height: constraints.maxHeight,
+                  child: Image.memory(widget.bytes, fit: BoxFit.contain),
+                ),
+              ),
+            ),
+    );
+
     return Dialog.fullscreen(
       backgroundColor: Colors.black,
       child: SafeArea(
         child: Stack(
           children: [
-            Center(
-              child: _isVideo
-                  ? (controller != null && controller.value.isInitialized
-                        ? GestureDetector(
-                            onTap: _toggleControlsOrPlayback,
-                            child: AspectRatio(
-                              // A zero/NaN aspect ratio (seen briefly on some
-                              // browsers right as metadata loads) makes
-                              // AspectRatio collapse to a zero-size box — the
-                              // video area silently vanishes (just a black
-                              // screen with the top bar) instead of erroring,
-                              // since asserts are stripped in release builds.
-                              aspectRatio:
-                                  controller.value.aspectRatio.isFinite &&
-                                      controller.value.aspectRatio > 0
-                                  ? controller.value.aspectRatio
-                                  : 16 / 9,
-                              child: VideoPlayer(controller),
-                            ),
-                          )
-                        : const CircularProgressIndicator(color: Colors.white))
-                  // `Center` gives an unbounded/loose constraint, and
-                  // `InteractiveViewer` doesn't constrain its child either
-                  // — without an explicit bounded box here, `Image.memory`
-                  // has nothing to fit *into*, so `BoxFit.contain` never
-                  // actually applies and the photo renders at its native
-                  // pixel size (often several thousand px on a phone photo)
-                  // instead of scaled to the screen — this is what read as
-                  // "opens crooked/wrong": a huge image cropped to whatever
-                  // corner happened to land in the viewport.
-                  : LayoutBuilder(
-                      builder: (context, constraints) => InteractiveViewer(
-                        child: SizedBox(
-                          width: constraints.maxWidth,
-                          height: constraints.maxHeight,
-                          child: Image.memory(
-                            widget.bytes,
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                      ),
-                    ),
-            ),
-            // Spans the whole screen rather than just the video's own
-            // (possibly narrow, e.g. portrait) box — otherwise the skip/
-            // play/pause row can overflow or clip against a tall, thin
-            // video, and the progress bar ends up much narrower than the
-            // reference (which spans the full device width regardless of
-            // the video's own aspect ratio).
-            if (_isVideo && controller != null && controller.value.isInitialized)
-              Positioned.fill(child: _videoControls(controller)),
+            // For video, the whole screen (not just the video's own,
+            // possibly narrow/portrait box) needs to be a tap target for
+            // revealing hidden controls again — otherwise tapping the
+            // letterboxed margin beside a narrow video hits nothing (no
+            // widget there at all once IgnorePointer disables the controls
+            // layer) and the controls seem stuck gone.
+            videoReady
+                ? GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _toggleControlsOrPlayback,
+                    child: media,
+                  )
+                : media,
+            if (videoReady) Positioned.fill(child: _videoControls(controller)),
+            if (!_isVideo) _bottomActionBar(),
             _topBar(),
           ],
         ),
