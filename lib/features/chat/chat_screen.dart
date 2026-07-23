@@ -1804,9 +1804,18 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
               children: [
                 // Dim the video slightly while the transport controls are
                 // up, same as every native player — makes the white
-                // play/pause + skip icons readable over any footage.
+                // play/pause + skip icons readable over any footage. Also
+                // tappable itself (this now spans the *whole* screen, not
+                // just the video's own box, so there's dim area beside a
+                // narrow/portrait video too) so tapping anywhere still
+                // toggles play/pause like tapping the video does.
                 Positioned.fill(
-                  child: Container(color: Colors.black.withValues(alpha: 0.15)),
+                  child: GestureDetector(
+                    onTap: _toggleControlsOrPlayback,
+                    child: Container(
+                      color: Colors.black.withValues(alpha: 0.15),
+                    ),
+                  ),
                 ),
                 Center(
                   child: Row(
@@ -1907,35 +1916,52 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
                   ? (controller != null && controller.value.isInitialized
                         ? GestureDetector(
                             onTap: _toggleControlsOrPlayback,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                AspectRatio(
-                                  // A zero/NaN aspect ratio (seen briefly on
-                                  // some browsers right as metadata loads)
-                                  // makes AspectRatio collapse to a
-                                  // zero-size box — the video area silently
-                                  // vanishes (just a black screen with the
-                                  // top bar) instead of erroring, since
-                                  // asserts are stripped in release builds.
-                                  aspectRatio:
-                                      controller.value.aspectRatio.isFinite &&
-                                          controller.value.aspectRatio > 0
-                                      ? controller.value.aspectRatio
-                                      : 16 / 9,
-                                  child: VideoPlayer(controller),
-                                ),
-                                Positioned.fill(
-                                  child: _videoControls(controller),
-                                ),
-                              ],
+                            child: AspectRatio(
+                              // A zero/NaN aspect ratio (seen briefly on some
+                              // browsers right as metadata loads) makes
+                              // AspectRatio collapse to a zero-size box — the
+                              // video area silently vanishes (just a black
+                              // screen with the top bar) instead of erroring,
+                              // since asserts are stripped in release builds.
+                              aspectRatio:
+                                  controller.value.aspectRatio.isFinite &&
+                                      controller.value.aspectRatio > 0
+                                  ? controller.value.aspectRatio
+                                  : 16 / 9,
+                              child: VideoPlayer(controller),
                             ),
                           )
                         : const CircularProgressIndicator(color: Colors.white))
-                  : InteractiveViewer(
-                      child: Image.memory(widget.bytes, fit: BoxFit.contain),
+                  // `Center` gives an unbounded/loose constraint, and
+                  // `InteractiveViewer` doesn't constrain its child either
+                  // — without an explicit bounded box here, `Image.memory`
+                  // has nothing to fit *into*, so `BoxFit.contain` never
+                  // actually applies and the photo renders at its native
+                  // pixel size (often several thousand px on a phone photo)
+                  // instead of scaled to the screen — this is what read as
+                  // "opens crooked/wrong": a huge image cropped to whatever
+                  // corner happened to land in the viewport.
+                  : LayoutBuilder(
+                      builder: (context, constraints) => InteractiveViewer(
+                        child: SizedBox(
+                          width: constraints.maxWidth,
+                          height: constraints.maxHeight,
+                          child: Image.memory(
+                            widget.bytes,
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
                     ),
             ),
+            // Spans the whole screen rather than just the video's own
+            // (possibly narrow, e.g. portrait) box — otherwise the skip/
+            // play/pause row can overflow or clip against a tall, thin
+            // video, and the progress bar ends up much narrower than the
+            // reference (which spans the full device width regardless of
+            // the video's own aspect ratio).
+            if (_isVideo && controller != null && controller.value.isInitialized)
+              Positioned.fill(child: _videoControls(controller)),
             _topBar(),
           ],
         ),
