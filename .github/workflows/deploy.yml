@@ -26,8 +26,15 @@ jobs:
         run: |
           echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > .env
           echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> .env
+          echo "VAPID_PUBLIC_KEY=${{ secrets.VAPID_PUBLIC_KEY }}" >> .env
 
-      - run: flutter build web --base-href /albine-messenger/
+      # --pwa-strategy=none: Flutter's own generated service worker only
+      # does asset pre-caching and has no push-notification support, and a
+      # given scope can only ever be controlled by one active service
+      # worker — registering our own (web/push_sw.js, handling push +
+      # notificationclick) would just silently replace Flutter's anyway.
+      # Trading the offline-asset-caching nicety for real push support.
+      - run: flutter build web --base-href /albine-messenger/ --pwa-strategy=none
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4

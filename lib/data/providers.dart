@@ -11,6 +11,7 @@ import 'auth_repository.dart';
 import 'chat_repository.dart';
 import 'key_backup_repository.dart';
 import 'profile_repository.dart';
+import 'push_repository.dart';
 import 'session_controller.dart';
 import 'signal_directory_repository.dart';
 
@@ -76,6 +77,15 @@ final chatRepositoryProvider = Provider<ChatRepository?>((ref) {
     signal: signal,
     keyStorage: ref.watch(keyStorageProvider),
   );
+});
+
+/// `null` until the session is ready — same "not ready yet" convention as
+/// [chatRepositoryProvider].
+final pushRepositoryProvider = Provider<PushRepository?>((ref) {
+  final session = ref.watch(sessionControllerProvider);
+  final profile = session.profile;
+  if (session.status != SessionStatus.ready || profile == null) return null;
+  return PushRepository(ref.watch(supabaseClientProvider), profile.id);
 });
 
 final conversationsStreamProvider =

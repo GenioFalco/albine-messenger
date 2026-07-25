@@ -39,6 +39,17 @@
 
   <!-- libsodium (sumo build) — must load before Dart code calls SodiumSumoInit.init() -->
   <script type="text/javascript" src="sodium.js" async></script>
+
+  <!-- Push notifications: Flutter's own generated service worker is built
+       with --pwa-strategy=none (see .github/workflows/deploy.yml) so it
+       never registers one, leaving the scope free for this one. -->
+  <script type="text/javascript">
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('push_sw.js');
+      });
+    }
+  </script>
 </head>
 <body>
   <!--

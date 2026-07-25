@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/config/env.dart';
 import '../../core/errors/humanize_error.dart';
 import '../../core/pick_image.dart';
 import '../../core/theme/albine_theme.dart';
@@ -18,6 +19,62 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _uploadingAvatar = false;
+  bool _pushBusy = false;
+  bool? _pushSubscribed;
+
+  @override
+  void initState() {
+    super.initState();
+    final push = ref.read(pushRepositoryProvider);
+    if (push != null && push.isSupported) {
+      push.isSubscribed().then((v) {
+        if (mounted) setState(() => _pushSubscribed = v);
+      });
+    }
+  }
+
+  Future<void> _togglePush(bool enable) async {
+    final push = ref.read(pushRepositoryProvider);
+    final vapidKey = Env.vapidPublicKey;
+    if (push == null) return;
+    if (enable && (vapidKey == null || vapidKey.isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Уведомления ещё не настроены на сервере'),
+        ),
+      );
+      return;
+    }
+    setState(() => _pushBusy = true);
+    try {
+      if (enable) {
+        final ok = await push.subscribe(vapidKey!);
+        if (mounted) {
+          setState(() => _pushSubscribed = ok);
+          if (!ok) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Не удалось включить — разреши уведомления в браузере',
+                ),
+              ),
+            );
+          }
+        }
+      } else {
+        await push.unsubscribe();
+        if (mounted) setState(() => _pushSubscribed = false);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(humanizeError(e))));
+      }
+    } finally {
+      if (mounted) setState(() => _pushBusy = false);
+    }
+  }
 
   Future<void> _changeAvatar() async {
     final profile = ref.read(sessionControllerProvider).profile;
@@ -141,6 +198,51 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               ],
             ),
           ),
+          if (ref.watch(pushRepositoryProvider)?.isSupported ?? false) ...[
+            const SizedBox(height: 20),
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 8),
+              child: Text(
+                'Уведомления',
+                style: TextStyle(
+                  color: colors.textSecondary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            AppCard(
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.notifications_outlined,
+                    color: colors.textSecondary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Push-уведомления о новых сообщениях',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  _pushBusy
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Switch(
+                          value: _pushSubscribed ?? false,
+                          onChanged: _togglePush,
+                        ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
           Padding(
             padding: const EdgeInsets.only(left: 4, bottom: 8),

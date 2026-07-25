@@ -280,3 +280,37 @@ Session-level working log. Updated before major stages and at least every 30–4
 **Next steps:**
 1. Apply `0010_group_management.sql` to the live Supabase project (along with `0009` if not already done).
 2. Manual E2E: open a direct chat's profile (avatar/name/username/media all correct); open a group's info screen as owner (rename works, add/remove member works, media shows) and as a non-owner (rename/add/remove controls are hidden, everything else still visible).
+
+---
+
+## 2026-07-25 (later) — avatars, member profile view, and M4 push notifications
+
+**Status:** User asked for all three in one go, then stepped away — "write the code, do everything, I'll come back and handle the tokens/secrets myself." Implemented everything that doesn't require live secrets; push notifications are code-complete but genuinely cannot be tested end-to-end without the user generating a VAPID keypair, deploying the edge function, and wiring the DB trigger — none of which this environment has credentials/CLI access for (same constraint as every other migration in this project). `flutter analyze` clean, `flutter build web --pwa-strategy=none` succeeds.
+
+**Avatars (profile + group):**
+- New public `avatars` Storage bucket (`0011_avatars.sql`) — unlike the private `media` bucket, avatars aren't secret content, so they're served as plain public URLs (no signed URLs, no client-side decryption). Fresh object path per upload (`profile/<id>/<uuid>.<ext>` / `group/<id>/<uuid>.<ext>`) rather than overwriting in place — simpler than getting upsert semantics right, at the cost of orphaning the previous file in storage (accepted trade-off, not worth a cleanup job at this scale).
+- `conversations.avatar_url` reuses the owner/admin UPDATE policy from `0010` — no new policy needed.
+- `ProfileRepository.uploadAvatar()` / `ChatRepository.uploadGroupAvatar()`; `SessionController.updateProfile()` (new) refreshes the in-memory cached profile immediately after a personal-avatar upload so it shows everywhere without a reload.
+- Wired into `ProfileScreen` (tap own avatar) and `GroupInfoScreen` (tap group avatar, owner-only) with a small camera-badge affordance; real avatar images now render (via `NetworkImage`) in both places plus the conversations list and contact profile, instead of always falling back to initials.
+- New shared `lib/core/pick_image.dart` (`file_picker`, image-only) used by both upload flows.
+
+**Member profile view:** `GroupInfoScreen`'s member rows are now tappable, opening `ContactProfileScreen` for that member. `ContactProfileScreen.conversationId` is now nullable — there's no 1:1 conversation to pull shared media from when opened this way, so that section is just omitted rather than faked.
+
+**Push notifications (M4) — code-complete, needs the user's secrets to actually go live:**
+- **Client** (`lib/data/push_repository.dart`): requests `Notification` permission, subscribes via the browser's `PushManager` (VAPID `applicationServerKey`, urlsafe-base64 → bytes), upserts the subscription (endpoint/p256dh/auth_key) into the existing `push_subscriptions` table (schema already had this since `0001_init.sql`, unused until now). Built on `package:web` + `dart:js_interop` — `dart:js_util` doesn't resolve on this Dart/Flutter toolchain (3.12.2 / 3.44.4), confirmed the same finding as the earlier native-share work.
+- **Service worker** (`web/push_sw.js`): handles `push` (always shows a generic "Новое сообщение" — see the E2E note below) and `notificationclick` (focuses an existing tab or opens a new one). Flutter's own generated service worker is now built with `--pwa-strategy=none` (`.github/workflows/deploy.yml` updated) since it only does asset pre-caching, has no push support, and a scope can only ever have one active controller anyway — registering `push_sw.js` (from `web/index.html`) would have silently replaced it either way. Confirmed locally: the generated `flutter_bootstrap.js` now calls `_flutter.loader.load()` with no `serviceWorkerSettings` at all.
+- **UI**: a "Push-уведомления о новых сообщениях" toggle in `ProfileScreen`, hidden entirely when `PushRepository.isSupported` is false (no Push API at all — e.g. Safari on iOS unless this PWA is added to the Home Screen).
+- **Server** (`supabase/functions/notify-new-message/index.ts`, Deno, `npm:web-push`): on each new message, looks up every *other* conversation member's subscriptions and sends `{title, body: "Новое сообщение", url}` to each, deleting any subscription the push service reports as gone (404/410). **Strict E2E, not a placeholder**: the function only ever sees the ciphertext row — it has no plaintext to put in the notification even if it wanted to, so the generic body is the deliberate, permanent answer to the "развилка" ROADMAP.md flagged for this milestone.
+- **Trigger** (`supabase/migrations/0012_push_notifications.sql`): a `pg_net`-based `AFTER INSERT` trigger on `messages` calling the edge function. The URL and service-role key can't be committed to git, so the trigger reads them from `current_setting('app.settings.*', true)` — a harmless no-op until those are set (see checklist below).
+
+**What the user needs to do to actually turn this on** (none of it possible from this environment):
+1. Generate a VAPID keypair, e.g. `npx web-push generate-vapid-keys`.
+2. Add the **public** key to this app's `.env` as `VAPID_PUBLIC_KEY=...` (already scaffolded, currently blank) and as the `VAPID_PUBLIC_KEY` GitHub Actions secret (deploy workflow already reads it).
+3. `supabase functions deploy notify-new-message`.
+4. `supabase secrets set VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... VAPID_SUBJECT=mailto:you@example.com` (private key only ever goes here, never in the app or git).
+5. Apply `0011_avatars.sql` and `0012_push_notifications.sql` to the live project (along with `0009`/`0010` if not already done).
+6. In the SQL editor, `alter database postgres set app.settings.edge_function_url to '...'` and `...service_role_key to '...'` (exact commands are in `0012`'s comments) — then start a fresh SQL editor session before testing, since `ALTER DATABASE SET` only applies to new connections.
+
+**Next steps:**
+1. The six-step checklist above (all needs real secrets/CLI access this environment doesn't have).
+2. Manual E2E once configured: toggle notifications on in `ProfileScreen`, send a message from a second account, confirm a system notification appears and clicking it focuses/opens the app; confirm avatar upload/display and the group-member profile-view work as described above (these three *can* be tested without any push setup).
