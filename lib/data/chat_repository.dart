@@ -139,7 +139,16 @@ class ChatRepository {
           messageType,
         );
         _signalDecryptCache[m.id] = utf8.decode(plaintext);
-      } catch (_) {
+      } catch (e, st) {
+        // Was previously swallowed silently — a decrypt failure with no
+        // diagnostic trail at all made this class of bug unfixable from a
+        // live bug report. Kept permanently, not just for this
+        // investigation: this should never be silent again.
+        // ignore: avoid_print
+        print(
+          '[signal] decrypt failed for message ${m.id} from ${m.senderId} '
+          '(type=$messageType): $e\n$st',
+        );
         // Self-heal instead of leaving the conversation permanently broken:
         // drop the local session so the *next* message to/from this contact
         // triggers a fresh X3DH handshake. This message itself stays
@@ -964,7 +973,7 @@ class ChatRepository {
         payload: payload,
       );
       return utf8.decode(plaintext);
-    } catch (_) {
+    } catch (e) {
       // Current key doesn't open it — try keys retired by a past "rotate my
       // key" action, oldest messages may predate the most recent rotation.
       for (final retiredBytes in _retiredKeysCache ?? const <Uint8List>[]) {
@@ -982,6 +991,13 @@ class ChatRepository {
           retiredKey.dispose();
         }
       }
+      // Previously silent — see the matching note on the signal decrypt
+      // failure path above.
+      // ignore: avoid_print
+      print(
+        '[crypto_box] decrypt failed for message ${message.id} from '
+        '${message.senderId}, peer pubkey=${base64Encode(peer.identityPubkey)}: $e',
+      );
       return '🔒 Не удалось расшифровать';
     }
   }
