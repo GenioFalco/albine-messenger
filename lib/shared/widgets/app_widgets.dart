@@ -31,10 +31,19 @@ Future<T?> showBlurredModalSheet<T>({
   // bubbles) so the card lines up with it horizontally too.
   Rect? anchorRect,
   bool anchorAlignRight = false,
+  // For a full modal (e.g. the forward-to picker) rather than a small
+  // anchored context menu — Telegram itself dims the backdrop for that kind
+  // of dialog on *every* screen size, unlike the small message-action menu
+  // (which intentionally stays undimmed on desktop, per the doc comment
+  // above). Also centers the dialog on wide screens instead of pinning it to
+  // the bottom, which only makes sense as a mobile bottom-sheet convention.
+  bool alwaysDim = false,
+  bool centerOnWide = false,
 }) {
   // Mirrors main_shell.dart's `_wideBreakpoint` (900) — below it we're the
   // single-column mobile layout.
-  final blurred = MediaQuery.sizeOf(context).width < 900;
+  final isWide = MediaQuery.sizeOf(context).width >= 900;
+  final blurred = alwaysDim || !isWide;
 
   return showGeneralDialog<T>(
     context: context,
@@ -59,7 +68,9 @@ Future<T?> showBlurredModalSheet<T>({
       if (anchorRect == null) {
         return SafeArea(
           child: Align(
-            alignment: Alignment.bottomCenter,
+            alignment: centerOnWide && isWide
+                ? Alignment.center
+                : Alignment.bottomCenter,
             child: Padding(padding: const EdgeInsets.all(12), child: content),
           ),
         );

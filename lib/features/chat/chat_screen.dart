@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:html' as html;
+import 'dart:js_interop';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
@@ -8,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
+import 'package:web/web.dart' as web;
 
 import '../../core/errors/humanize_error.dart';
 import '../../core/format.dart';
@@ -195,6 +197,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final target = await showBlurredModalSheet<ConversationSummary>(
       context: context,
       maxWidth: 420,
+      alwaysDim: true,
+      centerOnWide: true,
       builder: (context) => const _ForwardPickerSheet(),
     );
     if (target == null || !mounted) return;
@@ -486,6 +490,49 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return 'bin';
   }
 
+  /// Tries the Web Share API's file-sharing capability so mobile browsers
+  /// show their own native OS share/save sheet — the same "Save Image" /
+  /// "Save to Photos" prompt a native app gets — instead of a silent,
+  /// unprompted download. Desktop browsers generally don't support sharing
+  /// files at all, so `canShare` naturally comes back false there and the
+  /// caller falls through to the classic download-link trick, which is the
+  /// normal/expected desktop behavior (no complaint was raised about that).
+  ///
+  /// Returns true once a real native sheet was shown — whatever the user
+  /// then chose there (including cancelling) counts as "handled", since
+  /// there's no reason to also silently fall through to a second download
+  /// right after someone dismissed a real prompt. Only returns false when
+  /// the browser doesn't support sharing files at all (`canShare` itself is
+  /// the standard feature-detection call for this), which is the normal
+  /// case on desktop and is what triggers the classic fallback below.
+  Future<bool> _tryNativeShare(
+    Uint8List bytes,
+    String mime,
+    String filename,
+  ) async {
+    final navigator = web.window.navigator;
+    final file = web.File(
+      [bytes.toJS].toJS,
+      filename,
+      web.FilePropertyBag(type: mime),
+    );
+    final shareData = web.ShareData(files: [file].toJS);
+    bool canShare;
+    try {
+      canShare = navigator.canShare(shareData);
+    } catch (_) {
+      return false;
+    }
+    if (!canShare) return false;
+    try {
+      await navigator.share(shareData).toDart;
+    } catch (_) {
+      // Covers the user cancelling the native sheet (an AbortError) as well
+      // as any other failure once the real prompt was already shown.
+    }
+    return true;
+  }
+
   Future<void> _downloadMedia(ChatMessage message) async {
     final chat = ref.read(chatRepositoryProvider);
     final bytes = await chat?.fetchAndDecryptMedia(message);
@@ -503,9 +550,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         : (mime.startsWith('video/') ? 'video' : 'file');
     final filename = '$baseName.${_extensionForMime(mime)}';
 
-    // Flutter Web has no filesystem access — this is the standard trick for
-    // triggering a browser download of in-memory bytes (create a Blob,
-    // point a throwaway <a download> at it, click it programmatically).
+    if (await _tryNativeShare(bytes, mime, filename)) return;
+
+    // Fallback: Flutter Web has no filesystem access — this is the standard
+    // trick for triggering a browser download of in-memory bytes (create a
+    // Blob, point a throwaway <a download> at it, click it programmatically).
     final blob = html.Blob([bytes], mime);
     final url = html.Url.createObjectUrlFromBlob(blob);
     html.AnchorElement(href: url)
@@ -804,6 +853,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final target = await showBlurredModalSheet<ConversationSummary>(
       context: context,
       maxWidth: 420,
+      alwaysDim: true,
+      centerOnWide: true,
       builder: (context) => const _ForwardPickerSheet(),
     );
     if (target == null || !mounted) return;
@@ -1382,6 +1433,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     anchorRect: rect,
                                   );
                                 },
+                          // Long-press is a touch-only gesture — a mouse has
+                          // no equivalent, so the desktop/web-with-mouse way
+                          // to reach the same menu is a right click, anchored
+                          // right at the click point rather than the whole
+                          // bubble (there's no "which corner did I press"
+                          // ambiguity with a precise pointer like there is
+                          // with a fingertip).
+                          onSecondaryTapDown: _selecting
+                              ? null
+                              : (details) => _showMessageActions(
+                                  message: message,
+                                  decryptedText: text,
+                                  conversation: conversation,
+                                  mine: mine,
+                                  anchorRect: Rect.fromCenter(
+                                    center: details.globalPosition,
+                                    width: 1,
+                                    height: 1,
+                                  ),
+                                ),
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 300),
                             color: highlighted
@@ -1601,14 +1672,41 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 }
 
-/// A minimal conversation picker for "Переслать" — reuses the same
-/// conversations stream as the main list, tapping a row returns it via
-/// `Navigator.pop`.
-class _ForwardPickerSheet extends ConsumerWidget {
+/// A conversation picker for "Переслать" — reuses the same conversations
+/// stream as the main list, tapping a row returns it via `Navigator.pop`.
+/// Styled after Telegram's own forward dialog: a title, a search field that
+/// filters the list client-side, and an explicit "Отмена" — shown as a
+/// proper centered dialog on desktop (`centerOnWide`/`alwaysDim` on the
+/// `showBlurredModalSheet` call) rather than a bottom sheet with no backdrop
+/// dimming, which only made sense for the small anchored action menu.
+class _ForwardPickerSheet extends ConsumerStatefulWidget {
   const _ForwardPickerSheet();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ForwardPickerSheet> createState() =>
+      _ForwardPickerSheetState();
+}
+
+class _ForwardPickerSheetState extends ConsumerState<_ForwardPickerSheet> {
+  final _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      setState(() => _query = _searchController.text.trim().toLowerCase());
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AlbineColors>()!;
     final conversations = ref.watch(conversationsStreamProvider);
     return Container(
@@ -1625,10 +1723,31 @@ class _ForwardPickerSheet extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                 child: Text(
-                  'Переслать в...',
+                  'Переслать...',
                   style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: TextField(
+                  controller: _searchController,
+                  style: TextStyle(color: colors.textPrimary),
+                  decoration: InputDecoration(
+                    hintText: 'Поиск',
+                    prefixIcon: Icon(
+                      CupertinoIcons.search,
+                      color: colors.textSecondary,
+                    ),
+                    filled: true,
+                    fillColor: colors.surface,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(colors.radius),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
                 ),
               ),
               Expanded(
@@ -1637,28 +1756,64 @@ class _ForwardPickerSheet extends ConsumerWidget {
                       const Center(child: CircularProgressIndicator()),
                   error: (e, _) =>
                       Center(child: AppErrorText(humanizeError(e))),
-                  data: (items) => ListView.builder(
-                    itemCount: items.length,
-                    itemBuilder: (context, index) {
-                      final convo = items[index];
-                      return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: colors.surfaceStrong,
-                          child: Text(
-                            convo.displayTitle.isNotEmpty
-                                ? convo.displayTitle[0].toUpperCase()
-                                : '?',
-                            style: TextStyle(
-                              color: colors.textPrimary,
-                              fontWeight: FontWeight.w600,
+                  data: (items) {
+                    final filtered = _query.isEmpty
+                        ? items
+                        : items
+                              .where(
+                                (c) => c.displayTitle.toLowerCase().contains(
+                                  _query,
+                                ),
+                              )
+                              .toList();
+                    if (filtered.isEmpty) {
+                      return Center(
+                        child: Text(
+                          'Ничего не найдено',
+                          style: TextStyle(color: colors.textSecondary),
+                        ),
+                      );
+                    }
+                    return ListView.builder(
+                      itemCount: filtered.length,
+                      itemBuilder: (context, index) {
+                        final convo = filtered[index];
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: colors.surfaceStrong,
+                            child: Text(
+                              convo.displayTitle.isNotEmpty
+                                  ? convo.displayTitle[0].toUpperCase()
+                                  : '?',
+                              style: TextStyle(
+                                color: colors.textPrimary,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
-                        ),
-                        title: Text(convo.displayTitle),
-                        onTap: () => Navigator.of(context).pop(convo),
-                      );
-                    },
-                  ),
+                          title: Text(convo.displayTitle),
+                          subtitle: convo.kind == ConversationKind.group
+                              ? Text(
+                                  '${(convo.members?.length ?? 0) + 1} участников',
+                                )
+                              : null,
+                          onTap: () => Navigator.of(context).pop(convo),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Отмена'),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -1911,17 +2066,33 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
             onPressed: () => Navigator.of(context).pop(),
           ),
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Text(
-                widget.title,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 16,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  // A framed pill instead of bare floating text — matches
+                  // the same "everything sits on its own backing" language
+                  // as the circular icon buttons rather than looking like
+                  // plain unstyled text dropped on the screen.
+                  color: Colors.black.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 220),
+                  child: Text(
+                    widget.title,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -1938,27 +2109,32 @@ class _MediaViewerDialogState extends State<_MediaViewerDialog> {
   /// Enlarged versions of the same forward/delete icons from the message
   /// long-press menu, directly reachable without opening "..." — shared
   /// between photo and video so the chrome is identical either way. Save
-  /// stays "..."-only (it was redundant to have it here too).
+  /// stays "..."-only (it was redundant to have it here too). Pushed to the
+  /// screen edges (`spaceBetween` + horizontal padding) rather than
+  /// clustered in the middle.
   Widget _bottomActionBar() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _circleIconButton(
-          icon: CupertinoIcons.arrowshape_turn_up_right,
-          onPressed: _handleForward,
-          diameter: 52,
-          iconSize: 26,
-          tooltip: 'Переслать',
-        ),
-        if (widget.mine)
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
           _circleIconButton(
-            icon: CupertinoIcons.delete,
-            onPressed: _handleDelete,
+            icon: CupertinoIcons.arrowshape_turn_up_right,
+            onPressed: _handleForward,
             diameter: 52,
             iconSize: 26,
-            tooltip: 'Удалить',
+            tooltip: 'Переслать',
           ),
-      ],
+          if (widget.mine)
+            _circleIconButton(
+              icon: CupertinoIcons.delete,
+              onPressed: _handleDelete,
+              diameter: 52,
+              iconSize: 26,
+              tooltip: 'Удалить',
+            ),
+        ],
+      ),
     );
   }
 
