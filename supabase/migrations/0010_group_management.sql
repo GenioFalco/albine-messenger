@@ -9,6 +9,8 @@
 -- unaffected in practice: create_direct_conversation() never sets a role,
 -- so both members default to 'member' and is_conversation_admin() is always
 -- false for them — there is no path to renaming a 1:1 chat's (null) title.
+-- drop-then-create so this file is safe to re-run.
+drop policy if exists "owner/admin can rename conversation" on conversations;
 create policy "owner/admin can rename conversation"
   on conversations for update
   using (is_conversation_admin(id, auth.uid()))

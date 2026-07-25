@@ -10,7 +10,7 @@
 -- exactly the correct semantics already, since there's only one other
 -- member. Documented as a deliberate v1 scope limit, same style as other
 -- accepted trade-offs in ROADMAP.md.
-alter table messages add column read_at timestamptz;
+alter table messages add column if not exists read_at timestamptz;
 
 -- Recipients (not the sender) need to be able to set read_at on someone
 -- else's message when they open the chat — the existing "soft-delete/edit
@@ -19,6 +19,11 @@ alter table messages add column read_at timestamptz;
 -- to that rather than replacing it. Not column-restricted (RLS is row-level
 -- only) — same trust boundary as the rest of this app: the client is trusted
 -- to only ever send a read_at update through this path.
+--
+-- drop-then-create so this whole file is safe to re-run (e.g. after an
+-- earlier attempt got interrupted partway through) — matches 0001_init.sql's
+-- "safe to re-run" convention.
+drop policy if exists "mark others' messages read" on messages;
 create policy "mark others' messages read"
   on messages for update
   using (sender_id <> auth.uid() and is_conversation_member(conversation_id, auth.uid()))
