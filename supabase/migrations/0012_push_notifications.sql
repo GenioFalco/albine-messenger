@@ -3,24 +3,29 @@
 -- pg_net — Supabase's supported way to call an HTTP endpoint from a
 -- trigger, no external cron/polling needed.
 --
--- SETUP (do this once, after deploying the edge function — the URL/key
--- below can't be hardcoded in this file since it's committed to git):
+-- The function URL and service-role key are read from Supabase Vault
+-- rather than `ALTER DATABASE ... SET` — the SQL editor's role isn't
+-- allowed to set arbitrary database-level GUCs on a hosted project
+-- ("permission denied to set parameter"), but it *can* write to Vault,
+-- which is exactly what Vault is for.
 --
---   1. supabase functions deploy notify-new-message
---   2. supabase secrets set VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... VAPID_SUBJECT=mailto:you@example.com
---      (generate a keypair first, e.g. `npx web-push generate-vapid-keys`;
---      the public half also goes in this app's own .env as VAPID_PUBLIC_KEY)
---   3. In the SQL editor, run (fill in your own project ref + service_role
---      key from Project Settings → API):
---        alter database postgres set app.settings.edge_function_url to
---          'https://<project-ref>.supabase.co/functions/v1/notify-new-message';
---        alter database postgres set app.settings.service_role_key to
---          '<service_role key>';
---      Start a *fresh* SQL editor session afterwards — ALTER DATABASE SET
---      only takes effect for new connections.
+-- SETUP (do this once, after deploying the edge function — see that
+-- folder's own doc comment for the deploy/secrets steps). Run this in the
+-- SQL editor with your own values (never commit real values to this file):
 --
--- Until step 3 is done this trigger is a harmless no-op (it checks for an
--- empty setting and returns immediately, logging nothing).
+--   select vault.create_secret(
+--     'https://<project-ref>.supabase.co/functions/v1/notify-new-message',
+--     'edge_function_url'
+--   );
+--   select vault.create_secret(
+--     '<service_role key, from Project Settings -> API>',
+--     'service_role_key'
+--   );
+--
+-- Until both secrets exist this trigger is a harmless no-op (it checks for
+-- a missing secret and returns immediately). To update either value later,
+-- delete the old secret from Table Editor -> vault.secrets and re-run the
+-- corresponding vault.create_secret call above.
 create extension if not exists pg_net with schema extensions;
 
 create or replace function notify_new_message()
@@ -30,11 +35,16 @@ security definer
 set search_path = public
 as $$
 declare
-  edge_url text := current_setting('app.settings.edge_function_url', true);
-  service_key text := current_setting('app.settings.service_role_key', true);
+  edge_url text;
+  service_key text;
 begin
-  if edge_url is null or edge_url = '' then
-    return new;
+  select decrypted_secret into edge_url
+    from vault.decrypted_secrets where name = 'edge_function_url';
+  select decrypted_secret into service_key
+    from vault.decrypted_secrets where name = 'service_role_key';
+
+  if edge_url is null or service_key is null then
+    return new; -- not configured yet — see setup note above
   end if;
 
   perform net.http_post(

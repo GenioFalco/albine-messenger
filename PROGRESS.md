@@ -301,15 +301,19 @@ Session-level working log. Updated before major stages and at least every 30–4
 - **Service worker** (`web/push_sw.js`): handles `push` (always shows a generic "Новое сообщение" — see the E2E note below) and `notificationclick` (focuses an existing tab or opens a new one). Flutter's own generated service worker is now built with `--pwa-strategy=none` (`.github/workflows/deploy.yml` updated) since it only does asset pre-caching, has no push support, and a scope can only ever have one active controller anyway — registering `push_sw.js` (from `web/index.html`) would have silently replaced it either way. Confirmed locally: the generated `flutter_bootstrap.js` now calls `_flutter.loader.load()` with no `serviceWorkerSettings` at all.
 - **UI**: a "Push-уведомления о новых сообщениях" toggle in `ProfileScreen`, hidden entirely when `PushRepository.isSupported` is false (no Push API at all — e.g. Safari on iOS unless this PWA is added to the Home Screen).
 - **Server** (`supabase/functions/notify-new-message/index.ts`, Deno, `npm:web-push`): on each new message, looks up every *other* conversation member's subscriptions and sends `{title, body: "Новое сообщение", url}` to each, deleting any subscription the push service reports as gone (404/410). **Strict E2E, not a placeholder**: the function only ever sees the ciphertext row — it has no plaintext to put in the notification even if it wanted to, so the generic body is the deliberate, permanent answer to the "развилка" ROADMAP.md flagged for this milestone.
-- **Trigger** (`supabase/migrations/0012_push_notifications.sql`): a `pg_net`-based `AFTER INSERT` trigger on `messages` calling the edge function. The URL and service-role key can't be committed to git, so the trigger reads them from `current_setting('app.settings.*', true)` — a harmless no-op until those are set (see checklist below).
+- **Trigger** (`supabase/migrations/0012_push_notifications.sql`): a `pg_net`-based `AFTER INSERT` trigger on `messages` calling the edge function. The URL and service-role key can't be committed to git, so the trigger reads them from **Supabase Vault** (`vault.decrypted_secrets`) — a harmless no-op until those two secrets exist (see checklist below). Originally tried `current_setting('app.settings.*')` + `ALTER DATABASE ... SET`, but the SQL editor's role isn't allowed to set arbitrary database-level GUCs on a hosted project ("permission denied to set parameter") — Vault is Supabase's actual supported mechanism for exactly this "give a trigger function a secret" case.
 
-**What the user needs to do to actually turn this on** (none of it possible from this environment):
-1. Generate a VAPID keypair, e.g. `npx web-push generate-vapid-keys`.
-2. Add the **public** key to this app's `.env` as `VAPID_PUBLIC_KEY=...` (already scaffolded, currently blank) and as the `VAPID_PUBLIC_KEY` GitHub Actions secret (deploy workflow already reads it).
-3. `supabase functions deploy notify-new-message`.
-4. `supabase secrets set VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... VAPID_SUBJECT=mailto:you@example.com` (private key only ever goes here, never in the app or git).
-5. Apply `0011_avatars.sql` and `0012_push_notifications.sql` to the live project (along with `0009`/`0010` if not already done).
-6. In the SQL editor, `alter database postgres set app.settings.edge_function_url to '...'` and `...service_role_key to '...'` (exact commands are in `0012`'s comments) — then start a fresh SQL editor session before testing, since `ALTER DATABASE SET` only applies to new connections.
+**Actually done together with the user this round:**
+1. Generated a VAPID keypair locally via OpenSSL (no Node/npx available in this environment or the user's machine — `web-push generate-vapid-keys` needs Node) — raw P-256 EC keypair, manually converted to the same base64url raw-bytes format `web-push` would produce.
+2. Public key written to the user's local `.env` as `VAPID_PUBLIC_KEY`.
+3. Public key pushed to the `VAPID_PUBLIC_KEY` GitHub Actions secret via `gh secret set` (confirmed with the user first).
+4. Private key handed to the user directly in chat for pasting into the edge function's own secrets (never committed anywhere).
+
+**Still needs the user** (none of it possible from this environment):
+1. Deploy `supabase/functions/notify-new-message/index.ts` — via the Dashboard's Edge Functions UI (paste the code directly; no CLI installed), or `supabase functions deploy notify-new-message` if they set up the CLI.
+2. Set that function's secrets: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT=mailto:...`.
+3. Apply `0011_avatars.sql` and `0012_push_notifications.sql` to the live project (along with `0009`/`0010` if not already done).
+4. In the SQL editor, run the two `vault.create_secret(...)` calls from `0012`'s comment (own project URL + service_role key) — no session restart needed, unlike the old `ALTER DATABASE` approach.
 
 **Next steps:**
 1. The six-step checklist above (all needs real secrets/CLI access this environment doesn't have).
