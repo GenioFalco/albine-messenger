@@ -511,6 +511,13 @@ class SessionController extends Notifier<SessionState> {
   /// the session-unlock cache from [KeyStorage.saveUnlockedSecretKey].
   /// Doesn't lose anything: the server-side wrapped backup is untouched, so
   /// the next login just needs the password once to restore everything.
+  /// Updates the cached profile in memory (e.g. after uploading a new
+  /// avatar) so every screen watching [sessionControllerProvider] reflects
+  /// it immediately, without needing a full reload.
+  void updateProfile(AppProfile profile) {
+    state = state._copyWith(profile: profile);
+  }
+
   Future<void> signOut() async {
     final user = _client.auth.currentUser;
     if (user != null) await _storage.clearUnlockedSecretKey(user.id);

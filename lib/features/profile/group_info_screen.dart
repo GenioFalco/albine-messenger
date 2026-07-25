@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/errors/humanize_error.dart';
+import '../../core/pick_image.dart';
 import '../../core/theme/albine_theme.dart';
 import '../../data/providers.dart';
 import '../../data/session_controller.dart';
 import '../../domain/models.dart';
 import '../../shared/widgets/app_widgets.dart';
+import 'contact_profile_screen.dart';
 import 'media_gallery_grid.dart';
 
 /// Group management screen: rename (owner only), member list with a
@@ -21,10 +23,12 @@ class GroupInfoScreen extends ConsumerStatefulWidget {
     super.key,
     required this.conversationId,
     required this.initialTitle,
+    this.initialAvatarUrl,
   });
 
   final String conversationId;
   final String initialTitle;
+  final String? initialAvatarUrl;
 
   @override
   ConsumerState<GroupInfoScreen> createState() => _GroupInfoScreenState();
@@ -32,6 +36,8 @@ class GroupInfoScreen extends ConsumerStatefulWidget {
 
 class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
   late String _title = widget.initialTitle;
+  late String? _avatarUrl = widget.initialAvatarUrl;
+  bool _uploadingAvatar = false;
   Future<List<GroupMember>>? _membersFuture;
 
   @override
@@ -45,6 +51,32 @@ class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
     setState(
       () => _membersFuture = chat?.fetchGroupMembers(widget.conversationId),
     );
+  }
+
+  Future<void> _changeAvatar() async {
+    final picked = await pickImageBytes();
+    if (picked == null || !mounted) return;
+    setState(() => _uploadingAvatar = true);
+    try {
+      final url = await ref
+          .read(chatRepositoryProvider)!
+          .uploadGroupAvatar(
+            conversationId: widget.conversationId,
+            bytes: picked.bytes,
+            mime: picked.mime,
+          );
+      if (mounted) setState(() => _avatarUrl = url);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Не удалось загрузить фото: ${humanizeError(e)}'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingAvatar = false);
+    }
   }
 
   Future<void> _renameGroup() async {
@@ -167,16 +199,56 @@ class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
                 padding: const EdgeInsets.all(24),
                 child: Column(
                   children: [
-                    CircleAvatar(
-                      radius: 40,
-                      backgroundColor: colors.surfaceStrong,
-                      child: Text(
-                        _title.isNotEmpty ? _title[0].toUpperCase() : '?',
-                        style: TextStyle(
-                          fontSize: 30,
-                          color: colors.textPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
+                    GestureDetector(
+                      onTap: (isOwner && !_uploadingAvatar)
+                          ? _changeAvatar
+                          : null,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          CircleAvatar(
+                            radius: 40,
+                            backgroundColor: colors.surfaceStrong,
+                            backgroundImage: _avatarUrl != null
+                                ? NetworkImage(_avatarUrl!)
+                                : null,
+                            child: _avatarUrl != null
+                                ? null
+                                : Text(
+                                    _title.isNotEmpty
+                                        ? _title[0].toUpperCase()
+                                        : '?',
+                                    style: TextStyle(
+                                      fontSize: 30,
+                                      color: colors.textPrimary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                          ),
+                          if (_uploadingAvatar)
+                            const CircularProgressIndicator(strokeWidth: 2)
+                          else if (isOwner)
+                            Positioned(
+                              right: 0,
+                              bottom: 0,
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: colors.accent,
+                                  border: Border.all(
+                                    color: colors.background,
+                                    width: 2,
+                                  ),
+                                ),
+                                child: const Icon(
+                                  Icons.camera_alt,
+                                  size: 14,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 14),
@@ -290,6 +362,12 @@ class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
                                   onPressed: () => _removeMember(member),
                                 )
                               : null,
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  ContactProfileScreen(peer: member.profile),
+                            ),
+                          ),
                         ),
                     ],
                   ),

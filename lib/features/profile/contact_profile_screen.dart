@@ -7,18 +7,20 @@ import '../../domain/models.dart';
 import '../../shared/widgets/app_widgets.dart';
 import 'media_gallery_grid.dart';
 
-/// A direct-chat peer's profile — avatar, display name, username, and the
-/// media shared in this conversation. Opened by tapping the chat's AppBar
-/// title.
+/// A contact's profile — avatar, display name, username, and (when opened
+/// from a direct chat) the media shared in that conversation. [conversationId]
+/// is null when opened from a group's member list — there's no 1:1
+/// conversation with that person necessarily, so the media section is just
+/// omitted rather than showing unrelated or nonexistent data.
 class ContactProfileScreen extends ConsumerWidget {
   const ContactProfileScreen({
     super.key,
     required this.peer,
-    required this.conversationId,
+    this.conversationId,
   });
 
   final AppProfile peer;
-  final String conversationId;
+  final String? conversationId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -68,26 +70,28 @@ class ContactProfileScreen extends ConsumerWidget {
               ],
             ),
           ),
-          const SizedBox(height: 20),
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 8),
-            child: Text(
-              'Медиа, файлы',
-              style: TextStyle(
-                color: colors.textSecondary,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
+          if (conversationId != null) ...[
+            const SizedBox(height: 20),
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 8),
+              child: Text(
+                'Медиа, файлы',
+                style: TextStyle(
+                  color: colors.textSecondary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
-          ),
-          if (chat != null)
-            FormPanel(
-              padding: const EdgeInsets.all(4),
-              child: MediaGalleryGrid(
-                chat: chat,
-                conversationId: conversationId,
+            if (chat != null)
+              FormPanel(
+                padding: const EdgeInsets.all(4),
+                child: MediaGalleryGrid(
+                  chat: chat,
+                  conversationId: conversationId!,
+                ),
               ),
-            ),
+          ],
         ],
       ),
     );

@@ -53,6 +53,7 @@ class ConversationSummary {
     required this.kind,
     required this.updatedAt,
     this.title,
+    this.avatarUrl,
     this.peer,
     this.members,
     this.previewText,
@@ -65,6 +66,10 @@ class ConversationSummary {
   final ConversationKind kind;
   final DateTime updatedAt;
   final String? title;
+
+  /// Group's own picture — null for direct conversations (those show the
+  /// peer's `AppProfile.avatarUrl` instead).
+  final String? avatarUrl;
 
   /// The other participant, only set for direct conversations.
   final AppProfile? peer;

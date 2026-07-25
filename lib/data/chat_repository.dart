@@ -7,6 +7,7 @@ import 'package:sodium/sodium_sumo.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../core/media_download.dart';
 import '../domain/models.dart';
 import '../services/crypto/crypto_models.dart';
 import '../services/crypto/crypto_service.dart';
@@ -230,7 +231,7 @@ class ChatRepository {
     final memberRows = await _client
         .from('conversation_members')
         .select(
-          'conversation_id, pinned_at, muted, hidden_at, conversations!inner(id, kind, title, created_at)',
+          'conversation_id, pinned_at, muted, hidden_at, conversations!inner(id, kind, title, avatar_url, created_at)',
         )
         .eq('user_id', _myUserId);
 
@@ -326,6 +327,7 @@ class ChatRepository {
           kind: kind,
           updatedAt: updatedAt,
           title: convo['title'] as String?,
+          avatarUrl: convo['avatar_url'] as String?,
           peer: peer,
           members: members,
           previewText: preview,
@@ -437,6 +439,7 @@ class ChatRepository {
       kind: kind,
       updatedAt: DateTime.parse(row['created_at'] as String).toLocal(),
       title: row['title'] as String?,
+      avatarUrl: row['avatar_url'] as String?,
       peer: peer,
       members: members,
     );
@@ -542,6 +545,29 @@ class ChatRepository {
         .delete()
         .eq('conversation_id', conversationId)
         .eq('user_id', userId);
+  }
+
+  /// Uploads a new group picture — enforced server-side by the same
+  /// owner/admin-only storage policy that gates the object path (see
+  /// `0011_avatars.sql`), plus the existing owner/admin UPDATE policy on
+  /// `conversations` for pointing `avatar_url` at it. Fresh path per upload,
+  /// same reasoning as `ProfileRepository.uploadAvatar`.
+  Future<String> uploadGroupAvatar({
+    required String conversationId,
+    required Uint8List bytes,
+    required String mime,
+  }) async {
+    final path =
+        'group/$conversationId/${const Uuid().v4()}.${extensionForMime(mime)}';
+    await _client.storage
+        .from('avatars')
+        .uploadBinary(path, bytes, fileOptions: FileOptions(contentType: mime));
+    final url = _client.storage.from('avatars').getPublicUrl(path);
+    await _client
+        .from('conversations')
+        .update({'avatar_url': url})
+        .eq('id', conversationId);
+    return url;
   }
 
   /// Every media message (photo/video/file) ever sent in [conversationId],

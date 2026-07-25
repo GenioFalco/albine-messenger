@@ -330,15 +330,20 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
             child: CircleAvatar(
               radius: 18,
               backgroundColor: colors.surfaceStrong,
-              child: Text(
-                (profile?.displayName.isNotEmpty ?? false)
-                    ? profile!.displayName[0].toUpperCase()
-                    : '?',
-                style: TextStyle(
-                  color: colors.textPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              backgroundImage: profile?.avatarUrl != null
+                  ? NetworkImage(profile!.avatarUrl!)
+                  : null,
+              child: profile?.avatarUrl != null
+                  ? null
+                  : Text(
+                      (profile?.displayName.isNotEmpty ?? false)
+                          ? profile!.displayName[0].toUpperCase()
+                          : '?',
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
             ),
           ),
         ),
@@ -385,6 +390,9 @@ class _ConversationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<AlbineColors>()!;
+    final avatarUrl = convo.kind == ConversationKind.direct
+        ? convo.peer?.avatarUrl
+        : convo.avatarUrl;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
       child: Slidable(
@@ -443,16 +451,21 @@ class _ConversationTile extends StatelessWidget {
                   CircleAvatar(
                     radius: 26,
                     backgroundColor: colors.surfaceStrong,
-                    child: Text(
-                      convo.displayTitle.isNotEmpty
-                          ? convo.displayTitle[0].toUpperCase()
-                          : '?',
-                      style: TextStyle(
-                        color: colors.textPrimary,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 18,
-                      ),
-                    ),
+                    backgroundImage: avatarUrl != null
+                        ? NetworkImage(avatarUrl)
+                        : null,
+                    child: avatarUrl != null
+                        ? null
+                        : Text(
+                            convo.displayTitle.isNotEmpty
+                                ? convo.displayTitle[0].toUpperCase()
+                                : '?',
+                            style: TextStyle(
+                              color: colors.textPrimary,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 18,
+                            ),
+                          ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -545,15 +558,20 @@ class _ProfileButton extends ConsumerWidget {
               CircleAvatar(
                 radius: 20,
                 backgroundColor: colors.surfaceStrong,
-                child: Text(
-                  (profile?.displayName.isNotEmpty ?? false)
-                      ? profile!.displayName[0].toUpperCase()
-                      : '?',
-                  style: TextStyle(
-                    color: colors.textPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                backgroundImage: profile?.avatarUrl != null
+                    ? NetworkImage(profile!.avatarUrl!)
+                    : null,
+                child: profile?.avatarUrl != null
+                    ? null
+                    : Text(
+                        (profile?.displayName.isNotEmpty ?? false)
+                            ? profile!.displayName[0].toUpperCase()
+                            : '?',
+                        style: TextStyle(
+                          color: colors.textPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
               ),
               const SizedBox(width: 12),
               Expanded(

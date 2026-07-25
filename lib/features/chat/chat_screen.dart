@@ -819,6 +819,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           builder: (_) => GroupInfoScreen(
             conversationId: widget.conversationId,
             initialTitle: conversation.displayTitle,
+            initialAvatarUrl: conversation.avatarUrl,
           ),
         ),
       );

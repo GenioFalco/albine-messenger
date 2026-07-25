@@ -1,15 +1,67 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/errors/humanize_error.dart';
+import '../../core/pick_image.dart';
 import '../../core/theme/albine_theme.dart';
+import '../../data/providers.dart';
 import '../../data/session_controller.dart';
+import '../../domain/models.dart';
 import '../../shared/widgets/app_widgets.dart';
 
-class ProfileScreen extends ConsumerWidget {
+class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends ConsumerState<ProfileScreen> {
+  bool _uploadingAvatar = false;
+
+  Future<void> _changeAvatar() async {
+    final profile = ref.read(sessionControllerProvider).profile;
+    if (profile == null) return;
+    final picked = await pickImageBytes();
+    if (picked == null || !mounted) return;
+
+    setState(() => _uploadingAvatar = true);
+    try {
+      final url = await ref
+          .read(profileRepositoryProvider)
+          .uploadAvatar(
+            userId: profile.id,
+            bytes: picked.bytes,
+            mime: picked.mime,
+          );
+      if (!mounted) return;
+      ref
+          .read(sessionControllerProvider.notifier)
+          .updateProfile(
+            AppProfile(
+              id: profile.id,
+              username: profile.username,
+              displayName: profile.displayName,
+              identityPubkey: profile.identityPubkey,
+              avatarUrl: url,
+              signalRegistrationId: profile.signalRegistrationId,
+            ),
+          );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Не удалось загрузить фото: ${humanizeError(e)}'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingAvatar = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final profile = ref.watch(sessionControllerProvider).profile;
     final colors = Theme.of(context).extension<AlbineColors>()!;
 
@@ -22,18 +74,54 @@ class ProfileScreen extends ConsumerWidget {
             padding: const EdgeInsets.all(24),
             child: Column(
               children: [
-                CircleAvatar(
-                  radius: 36,
-                  backgroundColor: colors.surfaceStrong,
-                  child: Text(
-                    (profile?.displayName.isNotEmpty ?? false)
-                        ? profile!.displayName[0].toUpperCase()
-                        : '?',
-                    style: TextStyle(
-                      fontSize: 28,
-                      color: colors.textPrimary,
-                      fontWeight: FontWeight.w600,
-                    ),
+                GestureDetector(
+                  onTap: _uploadingAvatar ? null : _changeAvatar,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      CircleAvatar(
+                        radius: 36,
+                        backgroundColor: colors.surfaceStrong,
+                        backgroundImage: profile?.avatarUrl != null
+                            ? NetworkImage(profile!.avatarUrl!)
+                            : null,
+                        child: profile?.avatarUrl != null
+                            ? null
+                            : Text(
+                                (profile?.displayName.isNotEmpty ?? false)
+                                    ? profile!.displayName[0].toUpperCase()
+                                    : '?',
+                                style: TextStyle(
+                                  fontSize: 28,
+                                  color: colors.textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                      ),
+                      if (_uploadingAvatar)
+                        const CircularProgressIndicator(strokeWidth: 2)
+                      else
+                        Positioned(
+                          right: 0,
+                          bottom: 0,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: colors.accent,
+                              border: Border.all(
+                                color: colors.background,
+                                width: 2,
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.camera_alt,
+                              size: 14,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 14),

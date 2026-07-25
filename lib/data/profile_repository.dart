@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
+import '../core/media_download.dart';
 import '../domain/models.dart';
 
 class ProfileRepository {
@@ -86,5 +88,24 @@ class ProfileRepository {
         .from('profiles')
         .update({'identity_pubkey': base64Encode(identityPubkey)})
         .eq('id', userId);
+  }
+
+  /// Uploads [bytes] to the public `avatars` bucket under
+  /// `profile/<userId>/<uuid>.<ext>` (a fresh path per upload rather than
+  /// overwriting in place — see `0011_avatars.sql`'s doc comment), points
+  /// `profiles.avatar_url` at it, and returns the new public URL.
+  Future<String> uploadAvatar({
+    required String userId,
+    required Uint8List bytes,
+    required String mime,
+  }) async {
+    final path =
+        'profile/$userId/${const Uuid().v4()}.${extensionForMime(mime)}';
+    await _client.storage
+        .from('avatars')
+        .uploadBinary(path, bytes, fileOptions: FileOptions(contentType: mime));
+    final url = _client.storage.from('avatars').getPublicUrl(path);
+    await _client.from('profiles').update({'avatar_url': url}).eq('id', userId);
+    return url;
   }
 }
