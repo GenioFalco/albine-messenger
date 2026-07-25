@@ -254,3 +254,29 @@ Session-level working log. Updated before major stages and at least every 30–4
 - **Native OS save/share sheet on download:** `_downloadMedia` now tries the Web Share API's file-sharing capability first (`navigator.canShare`/`navigator.share` with a real `File`, via `package:web` + `dart:js_interop` — added `web: ^1.1.1` as a direct dependency) so iOS/Android show their own native "Save Image"/share sheet instead of a silent, unprompted download; falls back to the classic Blob+`<a download>` trick when the browser doesn't support file sharing at all (typically desktop, where a plain download is already the expected/correct behavior — no complaint was raised about that case). Note: `dart:js_util` doesn't resolve in this SDK/toolchain (Dart 3.12.2) — `package:web`'s typed bindings (`web.File`, `web.ShareData`, `Uint8List.toJS`, `JSPromise.toDart`) were used instead, which is also the currently-recommended approach over the older js_util/js interop.
 - **Explicitly not done — a separate desktop-specific minimal viewer layout** (matching the second reference screenshot: small caption bottom-left showing "Photo N of M" + sender + date, tiny icon row instead of the big circular buttons). That reference implies gallery paging across every media item in a conversation, which doesn't exist yet (nothing today lets you page between the previous/next photo in a chat) — a real version of that would need to build that navigation feature first rather than just re-skinning the current single-item viewer. Left alone rather than shipping a half-matching decoy.
 - `flutter analyze` clean, `flutter build web` succeeds. Not yet verified live by the user (same environment limitation — this app's canvaskit build still hangs this environment's browser screenshot tool).
+
+---
+
+## 2026-07-25 — contact profile + group management screens
+
+**Status:** New feature (not a bugfix round) — tapping a chat's AppBar title now opens a profile view: for a direct chat, the peer's avatar/name/username + shared media; for a group, a full management screen (rename, member list, add/remove members, shared media). `flutter analyze` clean, `flutter build web` succeeds. Not yet tested live.
+
+**Schema:** `supabase/migrations/0010_group_management.sql` — a single new policy, `"owner/admin can rename conversation"` (UPDATE on `conversations`, gated by the existing `is_conversation_admin()` helper). Adding/removing members needed **no new policy or RPC** — the existing `conversation_members` INSERT policy ("owner/admin can add members, or self at creation") already covers adding a member post-creation, and the existing DELETE policy ("owner/admin can remove members") already covers removal; both were already scoped correctly in `0001_init.sql`, just never used from the client until now. **Requires applying `0009`/`0010` to the live Supabase project** if not already done.
+
+**Roles:** scoped exactly to what was asked — only owner-vs-not is surfaced (`GroupMember.isOwner`, new in `models.dart`); the schema's `role in ('owner','admin','member')` already supports a future `'admin'` tier, deliberately not wired into any UI yet ("роли пока не нужны").
+
+**`lib/data/chat_repository.dart` additions:**
+- `fetchGroupMembers()` — member list with role, owner sorted first.
+- `updateGroupTitle()`, `addGroupMember()` (unseals this device's own group key via the existing `_tryGroupKeyFor`, reseals it for the new member — same key, not a fresh one, so existing messages stay readable), `removeGroupMember()`.
+- `fetchMediaMessages()` — every photo/video/file ever sent in a conversation, newest first (powers the new shared-media grid).
+
+**New files:**
+- `lib/core/media_download.dart` — extracted `chat_screen.dart`'s native-share/download logic (added last round) into a standalone, reusable module (`saveMediaBytes`/`suggestedMediaFilename`/`extensionForMime`) since the new gallery grid needed the exact same download behavior; `chat_screen.dart` now calls this instead of duplicating it.
+- `lib/features/profile/media_gallery_grid.dart` — shared-media grid (3-column, newest first) used by both new screens; tapping a photo opens a minimal pinch-zoom viewer, video/file thumbnails download directly. Deliberately doesn't reuse the chat's full reply/forward/delete viewer chrome — those actions don't map cleanly onto "browse everything ever shared."
+- `lib/features/profile/contact_profile_screen.dart` — direct-chat peer profile: avatar, display name, `@username`, shared media.
+- `lib/features/profile/group_info_screen.dart` — group management: tap-to-rename title (owner only, small edit-pencil affordance), member list with a "Создатель" badge on the owner and a remove button (owner only, never on self), "Добавить" opening a search+multi-select sheet (`_AddMembersSheet`, a trimmed variant of `new_group_sheet.dart`'s search UI — some duplication between the two accepted rather than forcing a shared abstraction across two already-different flows), shared media.
+- `lib/features/chat/chat_screen.dart` — AppBar title wrapped in an `InkWell`; `_openProfileOrGroupInfo()` pushes the right screen based on `conversation.kind`.
+
+**Next steps:**
+1. Apply `0010_group_management.sql` to the live Supabase project (along with `0009` if not already done).
+2. Manual E2E: open a direct chat's profile (avatar/name/username/media all correct); open a group's info screen as owner (rename works, add/remove member works, media shows) and as a non-owner (rename/add/remove controls are hidden, everything else still visible).

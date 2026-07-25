@@ -472,6 +472,93 @@ class ChatRepository {
     return result as String;
   }
 
+  /// Every member of [conversationId], owner first then alphabetical —
+  /// powers the group info/management screen (member list, "Создатель"
+  /// badge, remove action). Unlike `fetchConversationSummary`'s `members`
+  /// (profiles only, used for sender-name lookups), this also carries each
+  /// member's `role`.
+  Future<List<GroupMember>> fetchGroupMembers(String conversationId) async {
+    final rows = await _client
+        .from('conversation_members')
+        .select('role, profiles!inner(*)')
+        .eq('conversation_id', conversationId);
+    final members = [
+      for (final r in rows)
+        GroupMember(
+          profile: AppProfile.fromRow(r['profiles'] as Map<String, dynamic>),
+          role: r['role'] as String,
+        ),
+    ];
+    members.sort((a, b) {
+      if (a.isOwner != b.isOwner) return a.isOwner ? -1 : 1;
+      return a.profile.displayName.compareTo(b.profile.displayName);
+    });
+    return members;
+  }
+
+  /// Renames a group — enforced server-side by the owner/admin-only UPDATE
+  /// policy added in `0010_group_management.sql` (`conversations` had no
+  /// UPDATE policy at all before this).
+  Future<void> updateGroupTitle(String conversationId, String title) {
+    return _client
+        .from('conversations')
+        .update({'title': title})
+        .eq('id', conversationId);
+  }
+
+  /// Adds [member] to an existing group. Requires this device to already
+  /// have (or be able to unseal) the group's symmetric key — the point is
+  /// resealing the *same* plaintext key for the new member, not generating
+  /// a fresh one, which would silently orphan every existing message under
+  /// a key nobody but the new member could open. Enforced server-side by
+  /// the existing "owner/admin can add members" INSERT policy on
+  /// `conversation_members` (already covered post-creation adds, not just
+  /// at group-creation time — no new policy needed for this).
+  Future<void> addGroupMember(String conversationId, AppProfile member) async {
+    final key = await _tryGroupKeyFor(conversationId);
+    if (key == null) {
+      throw StateError(
+        'No group key available for conversation $conversationId',
+      );
+    }
+    final wrapped = base64Encode(
+      _crypto.sealGroupKeyForMember(
+        memberPublicKey: member.identityPubkey,
+        groupKey: key,
+      ),
+    );
+    await _client.from('conversation_members').insert({
+      'conversation_id': conversationId,
+      'user_id': member.id,
+      'wrapped_group_key': wrapped,
+    });
+  }
+
+  /// Removes a member — enforced server-side by the existing "owner/admin
+  /// can remove members" DELETE policy on `conversation_members`.
+  Future<void> removeGroupMember(String conversationId, String userId) {
+    return _client
+        .from('conversation_members')
+        .delete()
+        .eq('conversation_id', conversationId)
+        .eq('user_id', userId);
+  }
+
+  /// Every media message (photo/video/file) ever sent in [conversationId],
+  /// newest first — powers the profile/group-info screen's shared-media
+  /// grid. Deleted messages are already gone from the table entirely (hard
+  /// delete — see `0007_hard_delete_messages.sql`), so no extra filter
+  /// needed here.
+  Future<List<ChatMessage>> fetchMediaMessages(String conversationId) async {
+    final rows = await _client
+        .from('messages')
+        .select()
+        .eq('conversation_id', conversationId)
+        .inFilter('content_type', ['image', 'file'])
+        .order('created_at', ascending: false);
+    return rows.map(ChatMessage.fromRow).toList();
+  }
+
   Stream<List<ChatMessage>> watchMessages(String conversationId) {
     return _client
         .from('messages')

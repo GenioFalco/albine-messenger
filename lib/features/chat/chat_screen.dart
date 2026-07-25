@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:html' as html;
-import 'dart:js_interop';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
@@ -9,15 +8,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
-import 'package:web/web.dart' as web;
 
 import '../../core/errors/humanize_error.dart';
 import '../../core/format.dart';
+import '../../core/media_download.dart';
 import '../../core/theme/albine_theme.dart';
 import '../../data/providers.dart';
 import '../../data/session_controller.dart';
 import '../../domain/models.dart';
 import '../../shared/widgets/app_widgets.dart';
+import '../profile/contact_profile_screen.dart';
+import '../profile/group_info_screen.dart';
 
 /// Either a day separator (shown once above the first message of that day)
 /// or a message bubble — see `_ChatScreenState._buildListEntries`.
@@ -460,79 +461,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} МБ';
   }
 
-  /// Extension to give a downloaded file so it actually opens/previews as
-  /// what it is — without this, the browser saved everything under a bare
-  /// "file"/"video" name with no extension at all, so the OS had nothing to
-  /// associate it with and it just looked like a generic, nameless blob.
-  String _extensionForMime(String mime) {
-    switch (mime) {
-      case 'image/png':
-        return 'png';
-      case 'image/jpeg':
-        return 'jpg';
-      case 'image/gif':
-        return 'gif';
-      case 'image/webp':
-        return 'webp';
-      case 'image/heic':
-        return 'heic';
-      case 'video/mp4':
-        return 'mp4';
-      case 'video/quicktime':
-        return 'mov';
-      case 'video/webm':
-        return 'webm';
-      case 'video/x-matroska':
-        return 'mkv';
-      case 'application/pdf':
-        return 'pdf';
-    }
-    return 'bin';
-  }
-
-  /// Tries the Web Share API's file-sharing capability so mobile browsers
-  /// show their own native OS share/save sheet — the same "Save Image" /
-  /// "Save to Photos" prompt a native app gets — instead of a silent,
-  /// unprompted download. Desktop browsers generally don't support sharing
-  /// files at all, so `canShare` naturally comes back false there and the
-  /// caller falls through to the classic download-link trick, which is the
-  /// normal/expected desktop behavior (no complaint was raised about that).
-  ///
-  /// Returns true once a real native sheet was shown — whatever the user
-  /// then chose there (including cancelling) counts as "handled", since
-  /// there's no reason to also silently fall through to a second download
-  /// right after someone dismissed a real prompt. Only returns false when
-  /// the browser doesn't support sharing files at all (`canShare` itself is
-  /// the standard feature-detection call for this), which is the normal
-  /// case on desktop and is what triggers the classic fallback below.
-  Future<bool> _tryNativeShare(
-    Uint8List bytes,
-    String mime,
-    String filename,
-  ) async {
-    final navigator = web.window.navigator;
-    final file = web.File(
-      [bytes.toJS].toJS,
-      filename,
-      web.FilePropertyBag(type: mime),
-    );
-    final shareData = web.ShareData(files: [file].toJS);
-    bool canShare;
-    try {
-      canShare = navigator.canShare(shareData);
-    } catch (_) {
-      return false;
-    }
-    if (!canShare) return false;
-    try {
-      await navigator.share(shareData).toDart;
-    } catch (_) {
-      // Covers the user cancelling the native sheet (an AbortError) as well
-      // as any other failure once the real prompt was already shown.
-    }
-    return true;
-  }
-
   Future<void> _downloadMedia(ChatMessage message) async {
     final chat = ref.read(chatRepositoryProvider);
     final bytes = await chat?.fetchAndDecryptMedia(message);
@@ -545,22 +473,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
     final mime = message.mediaMimeHint ?? 'application/octet-stream';
-    final baseName = mime.startsWith('image/')
-        ? 'photo'
-        : (mime.startsWith('video/') ? 'video' : 'file');
-    final filename = '$baseName.${_extensionForMime(mime)}';
-
-    if (await _tryNativeShare(bytes, mime, filename)) return;
-
-    // Fallback: Flutter Web has no filesystem access — this is the standard
-    // trick for triggering a browser download of in-memory bytes (create a
-    // Blob, point a throwaway <a download> at it, click it programmatically).
-    final blob = html.Blob([bytes], mime);
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    html.AnchorElement(href: url)
-      ..setAttribute('download', filename)
-      ..click();
-    html.Url.revokeObjectUrl(url);
+    await saveMediaBytes(
+      bytes: bytes,
+      mime: mime,
+      filename: suggestedMediaFilename(mime),
+    );
   }
 
   Future<void> _openMediaViewer(
@@ -882,6 +799,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  /// Opens the peer's profile (direct) or the group management screen
+  /// (group) — tapping the AppBar title, same as every other messenger.
+  void _openProfileOrGroupInfo(ConversationSummary conversation) {
+    if (conversation.kind == ConversationKind.direct) {
+      final peer = conversation.peer;
+      if (peer == null) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ContactProfileScreen(
+            peer: peer,
+            conversationId: widget.conversationId,
+          ),
+        ),
+      );
+    } else {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => GroupInfoScreen(
+            conversationId: widget.conversationId,
+            initialTitle: conversation.displayTitle,
+          ),
+        ),
+      );
+    }
+  }
+
   Widget _buildTitle(BuildContext context, ConversationSummary? conversation) {
     final title = Text(conversation?.displayTitle ?? '...');
     if (conversation?.kind != ConversationKind.group) return title;
@@ -941,7 +884,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 icon: const Icon(Icons.arrow_back),
                 onPressed: widget.onBack ?? () => context.go('/chats'),
               ),
-              title: _buildTitle(context, summaryAsync.value),
+              title: InkWell(
+                onTap: summaryAsync.value != null
+                    ? () => _openProfileOrGroupInfo(summaryAsync.value!)
+                    : null,
+                child: _buildTitle(context, summaryAsync.value),
+              ),
             ),
       body: summaryAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),

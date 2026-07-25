@@ -34,6 +34,19 @@ class AppProfile {
 
 enum ConversationKind { direct, group }
 
+/// One row of a group's membership — a member's profile plus their role.
+/// Only the owner/not-owner distinction is surfaced in the UI for now
+/// ('admin' exists in the schema for a later pass but isn't used yet — no
+/// granular roles until there's an actual need for them).
+class GroupMember {
+  const GroupMember({required this.profile, required this.role});
+
+  final AppProfile profile;
+  final String role;
+
+  bool get isOwner => role == 'owner';
+}
+
 class ConversationSummary {
   const ConversationSummary({
     required this.id,
