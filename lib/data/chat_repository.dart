@@ -689,16 +689,36 @@ class ChatRepository {
   /// per-message RPCs; `read_at` is set once and never revisited (see
   /// `0009_read_receipts.sql`'s doc comment on the single-timestamp
   /// semantics for groups).
-  Future<void> markMessagesRead(String conversationId) {
-    // Goes through a SECURITY DEFINER RPC (0013) rather than a direct UPDATE:
-    // it checks membership explicitly and updates in one shot, sidestepping any
-    // ambiguity in how the two permissive UPDATE policies on `messages`
-    // combine. The WAL change still reaches Realtime, so the sender's tick
-    // flips to the double-check live.
-    return _client.rpc(
-      'mark_conversation_read',
-      params: {'p_conversation_id': conversationId},
-    );
+  Future<void> markMessagesRead(String conversationId) async {
+    // Preferred path: a SECURITY DEFINER RPC (0013) that checks membership and
+    // updates in one shot, sidestepping any ambiguity in how the two permissive
+    // UPDATE policies on `messages` combine. The WAL change still reaches
+    // Realtime, so the sender's tick flips to the double-check live.
+    try {
+      await _client.rpc(
+        'mark_conversation_read',
+        params: {'p_conversation_id': conversationId},
+      );
+      return;
+    } catch (e) {
+      // Migration 0013 not applied yet (function missing), or it errored — fall
+      // back to the direct UPDATE that relies on 0009's "mark others' messages
+      // read" policy. Logged, not silent: if BOTH fail, read receipts silently
+      // never working is exactly the bug we're chasing.
+      // ignore: avoid_print
+      print('[read] mark_conversation_read RPC failed, falling back: $e');
+    }
+    try {
+      await _client
+          .from('messages')
+          .update({'read_at': DateTime.now().toUtc().toIso8601String()})
+          .eq('conversation_id', conversationId)
+          .neq('sender_id', _myUserId)
+          .filter('read_at', 'is', null);
+    } catch (e) {
+      // ignore: avoid_print
+      print('[read] direct read_at UPDATE also failed: $e');
+    }
   }
 
   /// Hard-deletes the row (sender only, enforced by RLS — see
