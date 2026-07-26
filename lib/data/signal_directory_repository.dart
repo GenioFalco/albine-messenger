@@ -60,6 +60,17 @@ class SignalDirectoryRepository {
     });
   }
 
+  /// Deletes this account's entire published prekey bundle (signed + all
+  /// one-time). Used when the local store is fresh/reset but the server still
+  /// holds prekeys whose private halves are gone — republishing over a clean
+  /// slate is the only way to stop peers claiming dead prekeys (see
+  /// `SignalService.ensureBootstrapped` / `republishOwnPreKeys`). Needs the
+  /// owner-delete policies added in 0013_prekey_repair_and_read_rpc.sql.
+  Future<void> deleteAllOwnPreKeys(String userId) async {
+    await _client.from('one_time_prekeys').delete().eq('user_id', userId);
+    await _client.from('signed_prekeys').delete().eq('user_id', userId);
+  }
+
   Future<int> countOwnOneTimePreKeys(String userId) async {
     final rows = await _client
         .from('one_time_prekeys')

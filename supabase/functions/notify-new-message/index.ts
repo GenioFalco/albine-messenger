@@ -87,6 +87,17 @@ Deno.serve(async (req) => {
       ? `${senderName} • ${conversation.title}`
       : senderName;
 
+  // The actual Web Push subscriptions to deliver to — one row per device each
+  // recipient has enabled notifications on.
+  const { data: subs } = await supabase
+    .from("push_subscriptions")
+    .select("id, endpoint, p256dh, auth_key")
+    .in("user_id", recipientIds);
+
+  if (!subs || subs.length === 0) {
+    return new Response("ok", { status: 200 });
+  }
+
   const body = JSON.stringify({
     title,
     body: "Новое сообщение",

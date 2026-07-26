@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart'
+    show InvalidKeyIdException;
 import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sodium/sodium_sumo.dart';
@@ -105,6 +107,13 @@ class ChatRepository {
   /// `itemBuilder`. See [watchMessages] and [fetchConversations].
   final Map<String, String> _signalDecryptCache = {};
 
+  /// One-shot guard: the first time a Signal decrypt fails with
+  /// `InvalidKeyIdException` ("No such prekey / signed prekey"), this account's
+  /// *published* prekey bundle is orphaned (its private halves live in a
+  /// previous local store). Republish a fresh bundle exactly once so peers stop
+  /// claiming dead prekeys — see [SignalService.republishOwnPreKeys].
+  bool _prekeyRepublishAttempted = false;
+
   /// Decrypts any not-yet-cached `protocol: 'signal'` messages in
   /// [messages] and stashes the result in [_signalDecryptCache], so
   /// [decryptText] can read it back synchronously afterwards.
@@ -149,6 +158,15 @@ class ChatRepository {
           '[signal] decrypt failed for message ${m.id} from ${m.senderId} '
           '(type=$messageType): $e\n$st',
         );
+        // A "No such prekey" means *our own* published bundle is orphaned
+        // (see _prekeyRepublishAttempted). Republish a fresh, matching bundle
+        // once so this contact's next handshake claims a live prekey and
+        // actually decrypts — the real fix for the persistent cross-device
+        // failure, not just papering over one message.
+        if (e is InvalidKeyIdException && !_prekeyRepublishAttempted) {
+          _prekeyRepublishAttempted = true;
+          await _signal.republishOwnPreKeys().catchError((_) {});
+        }
         // Self-heal instead of leaving the conversation permanently broken:
         // drop the local session so the *next* message to/from this contact
         // triggers a fresh X3DH handshake. This message itself stays
@@ -672,12 +690,15 @@ class ChatRepository {
   /// `0009_read_receipts.sql`'s doc comment on the single-timestamp
   /// semantics for groups).
   Future<void> markMessagesRead(String conversationId) {
-    return _client
-        .from('messages')
-        .update({'read_at': DateTime.now().toUtc().toIso8601String()})
-        .eq('conversation_id', conversationId)
-        .neq('sender_id', _myUserId)
-        .filter('read_at', 'is', null);
+    // Goes through a SECURITY DEFINER RPC (0013) rather than a direct UPDATE:
+    // it checks membership explicitly and updates in one shot, sidestepping any
+    // ambiguity in how the two permissive UPDATE policies on `messages`
+    // combine. The WAL change still reaches Realtime, so the sender's tick
+    // flips to the double-check live.
+    return _client.rpc(
+      'mark_conversation_read',
+      params: {'p_conversation_id': conversationId},
+    );
   }
 
   /// Hard-deletes the row (sender only, enforced by RLS — see

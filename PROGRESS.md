@@ -4,6 +4,29 @@ Session-level working log. Updated before major stages and at least every 30–4
 
 ---
 
+## 2026-07-26 (2) — ROOT-CAUSE fix: prekey orphan → permanent "Не удалось расшифровать"
+
+**Status:** Found and fixed the real decrypt bug (the previous entry's "not a code bug, it's test-environment desync" diagnosis was **wrong** — it *is* a code bug, reproducible for real users). Build clean (`flutter analyze` on changed files, `flutter build web --pwa-strategy=none`). Also fixed a broken notification edge function and made read receipts robust.
+
+**The bug — orphaned one-time prekeys.** When a device loses its *local* Signal store (cleared browser data, a **different origin** — the launch config serves at `127.0.0.1:5050` but the preview opens `localhost:5050`, two separate `localStorage` scopes! — or the "rotate key" action), the account's one-time prekeys published to the server survive, but their private halves are gone. `SignalService._topUpOneTimePreKeys()` decides whether to regenerate by the **server** count, so it sees ≥10 prekeys still there and generates nothing → the local store ends up with zero usable one-time prekeys while the server keeps handing peers dead ones. Every X3DH session a peer builds then fails permanently with `InvalidKeyIdException - No such prekey: N` (exactly the 5–10 sequence in the logs — each incoming handshake burns the next dead prekey). This also explains why the user's earlier "reset key" attempts didn't stick: `resetAll()` cleared the local store but bootstrap then skipped prekey regen for the same reason.
+
+**Fix (three layers):**
+1. `SignalService.ensureBootstrapped()` — on a *fresh* local store, `deleteAllOwnPreKeys()` on the server first, so the top-up republishes a clean, fully-matching bundle. Makes "rotate key" / clear-data / new-origin self-correct.
+2. `SignalService.republishOwnPreKeys()` (new) + wired into `ChatRepository._prewarmSignalDecryption`'s catch: the first time a decrypt fails with `InvalidKeyIdException`, republish a fresh bundle once. Since both sides of a broken chat are usually in the same re-handshake loop, once each republishes the next handshake claims a live prekey and the conversation **self-heals with no manual reset**.
+3. `SignalDirectoryRepository.deleteAllOwnPreKeys()` + `0013` migration adds the owner-DELETE RLS policies on `one_time_prekeys`/`signed_prekeys` (0003 never granted delete).
+
+**Read receipts — now via a SECURITY DEFINER RPC.** `markMessagesRead` was a direct UPDATE relying on the 0009 permissive policy; replaced with `mark_conversation_read(p_conversation_id)` (in `0013`) that checks membership and updates in one shot. Removes any RLS ambiguity; the WAL change still reaches Realtime so the sender's tick flips live and the reader's unread badge drops.
+
+**Notifications edge function was broken.** `notify-new-message/index.ts` referenced `subs` in the send loop but **never queried `push_subscriptions`** — the function threw at runtime, so it could never deploy (which is why the *old* generic "from Albine" version was still live). Added the `push_subscriptions` fetch by `recipientIds`. Title already carries the sender/group name.
+
+**User must do (server side — I can't):**
+1. Apply migration `supabase/migrations/0013_prekey_repair_and_read_rpc.sql` in the SQL editor.
+2. Redeploy the edge function: `supabase functions deploy notify-new-message`.
+3. Let GitHub Pages rebuild (push triggers CI), then **hard-reload on the phone** (or clear site data) so it drops the stale cached service worker and runs the new client. Both devices on the new build → chats self-heal within a message or two.
+4. Per device, stick to **one** URL (don't mix `localhost` and `127.0.0.1`).
+
+---
+
 ## 2026-07-26 — live-testing fixes: session hang, UX polish, push metadata
 
 **Status:** Round of fixes from a real two-account cross-device test. All build clean (`flutter analyze`, `flutter build web --pwa-strategy=none`). The core E2E decrypt failure the user hit is diagnosed but **not a code bug** (see below).
