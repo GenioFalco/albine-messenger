@@ -47,6 +47,10 @@ dependencies:
   uuid: ^4.6.0
   video_player: ^2.13.0
   web: ^1.1.1
+  # Voice messages (M5 stage 1): record captures mic audio as Opus/WebM on web
+  # (MediaRecorder under the hood); just_audio plays the decrypted bytes back.
+  record: ^6.0.0
+  just_audio: ^0.10.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

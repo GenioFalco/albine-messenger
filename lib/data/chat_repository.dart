@@ -978,6 +978,7 @@ class ChatRepository {
     // reply-quote previews, the pinned banner, and the chat-list preview,
     // all of which just want a short label, not the actual bytes.
     if (message.contentType == 'image') return '📷 Фото';
+    if (message.contentType == 'voice') return '🎤 Голосовое сообщение';
     if (message.contentType == 'file') {
       final isVideo = message.mediaMimeHint?.startsWith('video/') ?? false;
       return isVideo ? '🎥 Видео' : '📎 Файл';

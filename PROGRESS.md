@@ -4,6 +4,22 @@ Session-level working log. Updated before major stages and at least every 30–4
 
 ---
 
+## 2026-07-27 — M5 этап 1: голосовые сообщения (код готов, ждёт живой проверки)
+
+**Status:** Первый из двух этапов M5-ГС. Запись → шифрование → отправка → воспроизведение — сквозной цикл. `flutter analyze` (только предсуществующие infos), `flutter build web --pwa-strategy=none` — чисто, приложение грузится без ошибок в консоли. Живой клик по записи в этой среде не проверить (canvaskit-автоматизация не работает) — нужна ручная проверка.
+
+- **Запись — чистый звук.** Новый `lib/core/audio_recorder.dart` (`VoiceRecorder`) поверх пакета `record`: Opus, 48 кГц, моно, ~96 кбит + echoCancel/noiseSuppress/autoGain. Это радикально выше ~16–24 кбит у ВК/WhatsApp (именно низкий битрейт даёт их «кашу»), Opus на 96к для речи прозрачен — артефактов нет. Веб-only: `record` отдаёт blob-URL на `stop()`, забираем байты через `package:web` fetch.
+- **Крипты и изменений в репозитории для отправки не потребовалось** — голосовое идёт через готовый `sendMediaMessage` с `content_type = 'voice'` и mime `audio/webm;codecs=opus`. Тот же per-file AEAD-ключ, запечатанный каждому участнику; сервер видит только шифротекст.
+- **Плеер** — новый `lib/features/chat/voice_message_bubble.dart` (`VoiceMessageBubble`) на `just_audio`: лениво (по первому тапу) скачивает+расшифровывает, играет из in-memory blob-URL (плейнтекст на диск не попадает, URL освобождается в dispose), кнопка play/pause + прогресс-бар + время.
+- **Поле ввода:** тап по микрофону — старт записи; появляется панель записи (корзина-отмена, красная точка, таймер, синяя кнопка отправки). Долгое нажатие на иконку — переключение мик↔камера (видео-кружки — этап 2).
+- **Превью в списке чатов** — «🎤 Голосовое сообщение» (`decryptText`).
+- **Зависимости:** `record: ^6.0.0`, `just_audio: ^0.10.0`.
+- **Миграций не требуется** (переиспользуются существующие media-колонки). Длительность пока определяется плеером при загрузке; её сохранение в БД + волновая форма — этап 2.
+
+**Этап 2 (потом):** живая волновая форма (при записи и в пузыре), запись удержанием со слайдом-отменой и «замком», скорость 1.5×/2×, длительность/волна в БД, тонкая настройка звука, видео-кружки.
+
+---
+
 ## 2026-07-26 (2) — ROOT-CAUSE fix: prekey orphan → permanent "Не удалось расшифровать"
 
 **Status:** Found and fixed the real decrypt bug (the previous entry's "not a code bug, it's test-environment desync" diagnosis was **wrong** — it *is* a code bug, reproducible for real users). Build clean (`flutter analyze` on changed files, `flutter build web --pwa-strategy=none`). Also fixed a broken notification edge function and made read receipts robust.

@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../core/audio_recorder.dart';
 import '../../core/errors/humanize_error.dart';
 import '../../core/format.dart';
 import '../../core/media_download.dart';
@@ -19,6 +20,7 @@ import '../../domain/models.dart';
 import '../../shared/widgets/app_widgets.dart';
 import '../profile/contact_profile_screen.dart';
 import '../profile/group_info_screen.dart';
+import 'voice_message_bubble.dart';
 
 /// Either a day separator (shown once above the first message of that day)
 /// or a message bubble — see `_ChatScreenState._buildListEntries`.
@@ -50,10 +52,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _scrollController = ScrollController();
   bool _sending = false;
 
-  /// Which icon the empty-input trailing button shows — toggled by tapping
-  /// it, same as WhatsApp/Telegram. Neither voice nor video recording is
-  /// wired up yet (M3 is on hold); this is just the visual affordance.
+  /// Which icon the empty-input trailing button shows — toggled by
+  /// long-pressing it (mic ↔ camera glyph). Voice recording (mic) is wired up
+  /// below; the video-circle (camera) path is M5 stage 2.
   bool _voiceMode = true;
+
+  /// Voice-message recording state (M5 stage 1). `_recorder` is non-null only
+  /// while actively recording; `_recElapsed` drives the on-screen timer.
+  VoiceRecorder? _recorder;
+  bool _recording = false;
+  Duration _recElapsed = Duration.zero;
+  Timer? _recTimer;
 
   /// Set while composing a reply — mutually exclusive with [_editing].
   ChatMessage? _replyingTo;
@@ -127,6 +136,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void dispose() {
     _textController.dispose();
     _scrollController.dispose();
+    _recTimer?.cancel();
+    _recorder?.dispose();
     super.dispose();
   }
 
@@ -397,6 +408,179 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// photo/video/file picker in between (the system dialog already lets you
   /// filter/browse, a second menu on top of it was redundant). What kind of
   /// attachment this is gets inferred from the picked file's extension.
+  /// Everyone a media/voice message must be sealed for: every group member (or
+  /// the direct peer) **plus self** — otherwise the sender can't reopen their
+  /// own sent media after a reload. Null if the conversation has no resolvable
+  /// recipients yet.
+  List<AppProfile>? _recipientsFor(ConversationSummary conversation) {
+    final myProfile = ref.read(sessionControllerProvider).profile;
+    if (myProfile == null) return null;
+    final recipients = <AppProfile>[myProfile];
+    if (conversation.kind == ConversationKind.group) {
+      recipients.addAll(conversation.members ?? const []);
+    } else if (conversation.peer != null) {
+      recipients.add(conversation.peer!);
+    } else {
+      return null;
+    }
+    return recipients;
+  }
+
+  Future<void> _startRecording() async {
+    if (_recording) return;
+    final recorder = VoiceRecorder();
+    try {
+      if (!await recorder.hasPermission()) {
+        recorder.dispose();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Нет доступа к микрофону')),
+          );
+        }
+        return;
+      }
+      await recorder.start();
+    } catch (e) {
+      recorder.dispose();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось начать запись: ${humanizeError(e)}')),
+        );
+      }
+      return;
+    }
+    if (!mounted) {
+      await recorder.cancel();
+      recorder.dispose();
+      return;
+    }
+    setState(() {
+      _recorder = recorder;
+      _recording = true;
+      _recElapsed = Duration.zero;
+    });
+    _recTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _recElapsed += const Duration(seconds: 1));
+    });
+  }
+
+  Future<void> _cancelRecording() async {
+    _recTimer?.cancel();
+    _recTimer = null;
+    final recorder = _recorder;
+    _recorder = null;
+    if (mounted) setState(() => _recording = false);
+    await recorder?.cancel();
+    recorder?.dispose();
+  }
+
+  Future<void> _stopAndSendRecording(ConversationSummary conversation) async {
+    _recTimer?.cancel();
+    _recTimer = null;
+    final recorder = _recorder;
+    _recorder = null;
+    if (recorder == null) return;
+    setState(() {
+      _recording = false;
+      _sending = true;
+    });
+
+    RecordedVoice? recorded;
+    try {
+      recorded = await recorder.stop();
+    } catch (_) {
+      recorded = null;
+    } finally {
+      recorder.dispose();
+    }
+
+    final chat = ref.read(chatRepositoryProvider);
+    final recipients = _recipientsFor(conversation);
+    if (recorded == null || recorded.bytes.isEmpty || chat == null || recipients == null) {
+      if (mounted) setState(() => _sending = false);
+      return;
+    }
+
+    try {
+      await chat.sendMediaMessage(
+        conversationId: widget.conversationId,
+        recipients: recipients,
+        bytes: recorded.bytes,
+        contentType: 'voice',
+        mimeHint: recorded.mime,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось отправить голосовое: ${humanizeError(e)}')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  String _fmtRec(Duration d) {
+    final m = d.inMinutes;
+    final s = d.inSeconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  Widget _buildRecordingBar(
+    ConversationSummary conversation,
+    AlbineColors colors,
+  ) {
+    return Row(
+      children: [
+        IconButton(
+          tooltip: 'Отменить',
+          icon: Icon(CupertinoIcons.trash, color: colors.textSecondary),
+          onPressed: _cancelRecording,
+        ),
+        Expanded(
+          child: Row(
+            children: [
+              Container(
+                width: 10,
+                height: 10,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.red,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                _fmtRec(_recElapsed),
+                style: TextStyle(
+                  color: colors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'Идёт запись…',
+                style: TextStyle(color: colors.textSecondary),
+              ),
+            ],
+          ),
+        ),
+        Material(
+          color: colors.accent,
+          shape: const CircleBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => _stopAndSendRecording(conversation),
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Icon(CupertinoIcons.arrow_up, color: colors.textOnAccent),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<void> _pickAndSendMedia(ConversationSummary conversation) async {
     final result = await FilePicker.pickFiles(withData: true);
     final file = result?.files.singleOrNull;
@@ -404,17 +588,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (file == null || bytes == null || !mounted) return;
 
     final chat = ref.read(chatRepositoryProvider);
-    final myProfile = ref.read(sessionControllerProvider).profile;
-    if (chat == null || myProfile == null) return;
-
-    final recipients = <AppProfile>[myProfile];
-    if (conversation.kind == ConversationKind.group) {
-      recipients.addAll(conversation.members ?? const []);
-    } else if (conversation.peer != null) {
-      recipients.add(conversation.peer!);
-    } else {
-      return;
-    }
+    final recipients = _recipientsFor(conversation);
+    if (chat == null || recipients == null) return;
 
     final ext = file.extension?.toLowerCase();
     final contentType = _imageExtensions.contains(ext) ? 'image' : 'file';
@@ -533,6 +708,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     required ConversationSummary conversation,
   }) {
     final chat = ref.read(chatRepositoryProvider);
+    if (message.contentType == 'voice') {
+      return VoiceMessageBubble(
+        key: ValueKey('voice-${message.id}'),
+        message: message,
+        mine: mine,
+        colors: colors,
+      );
+    }
     if (message.contentType == 'image' && chat != null) {
       return FutureBuilder<Uint8List?>(
         future: chat.fetchAndDecryptMedia(message),
@@ -1500,7 +1683,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(8, 10, 12, 24),
-                      child: Row(
+                      child: _recording
+                          ? _buildRecordingBar(conversation, colors)
+                          : Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           Material(
@@ -1573,27 +1758,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             builder: (context, value, _) {
                               final hasText = value.text.trim().isNotEmpty;
                               if (!hasText && !_sending) {
-                                // No text yet — voice/video-circle recording
-                                // isn't wired up either, this just toggles
-                                // which icon shows, same as WhatsApp/Telegram.
-                                return IconButton(
-                                  icon: _voiceMode
-                                      ? Icon(
-                                          CupertinoIcons.mic_fill,
-                                          size: 26,
-                                          color: colors.textSecondary,
-                                        )
-                                      // Cupertino's own camera glyph doesn't
-                                      // read clearly as "rounded square with
-                                      // a circle lens" at this size — drawn
-                                      // by hand instead so the shape always
-                                      // matches Telegram's icon exactly.
-                                      : _CameraGlyph(
-                                          size: 22,
-                                          color: colors.textSecondary,
-                                        ),
-                                  onPressed: () =>
+                                // No text: tap the mic to record a voice
+                                // message; long-press switches the glyph to
+                                // the camera (video circles are M5 stage 2).
+                                return GestureDetector(
+                                  onLongPress: () =>
                                       setState(() => _voiceMode = !_voiceMode),
+                                  child: IconButton(
+                                    icon: _voiceMode
+                                        ? Icon(
+                                            CupertinoIcons.mic_fill,
+                                            size: 26,
+                                            color: colors.textSecondary,
+                                          )
+                                        // Cupertino's own camera glyph doesn't
+                                        // read clearly as "rounded square with
+                                        // a circle lens" at this size — drawn
+                                        // by hand instead so the shape always
+                                        // matches Telegram's icon exactly.
+                                        : _CameraGlyph(
+                                            size: 22,
+                                            color: colors.textSecondary,
+                                          ),
+                                    onPressed: _voiceMode
+                                        ? _startRecording
+                                        : () =>
+                                              setState(() => _voiceMode = true),
+                                  ),
                                 );
                               }
                               return Material(
