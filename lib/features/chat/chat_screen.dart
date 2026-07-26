@@ -1521,27 +1521,50 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             ),
                           ),
                           Expanded(
-                            child: TextField(
-                              controller: _textController,
-                              style: TextStyle(color: colors.textPrimary),
-                              minLines: 1,
-                              maxLines: 5,
-                              decoration: InputDecoration(
-                                hintText: 'Сообщение...',
-                                filled: true,
-                                fillColor: colors.surface,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 14,
-                                ),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    colors.radius,
+                            // On a physical keyboard (desktop/web), plain
+                            // Enter sends and Shift+Enter inserts a newline —
+                            // the messenger convention. A TextField's own
+                            // onSubmitted only fires for the on-screen
+                            // keyboard's action button, so this is done via a
+                            // Focus key handler that swallows a bare Enter
+                            // (sends instead) and lets Shift+Enter fall
+                            // through to the default newline insertion.
+                            child: Focus(
+                              onKeyEvent: (node, event) {
+                                if (event is KeyDownEvent &&
+                                    (event.logicalKey ==
+                                            LogicalKeyboardKey.enter ||
+                                        event.logicalKey ==
+                                            LogicalKeyboardKey.numpadEnter) &&
+                                    !HardwareKeyboard.instance.isShiftPressed) {
+                                  _send(conversation);
+                                  return KeyEventResult.handled;
+                                }
+                                return KeyEventResult.ignored;
+                              },
+                              child: TextField(
+                                controller: _textController,
+                                style: TextStyle(color: colors.textPrimary),
+                                minLines: 1,
+                                maxLines: 5,
+                                keyboardType: TextInputType.multiline,
+                                textInputAction: TextInputAction.newline,
+                                decoration: InputDecoration(
+                                  hintText: 'Сообщение...',
+                                  filled: true,
+                                  fillColor: colors.surface,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 14,
                                   ),
-                                  borderSide: BorderSide.none,
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(
+                                      colors.radius,
+                                    ),
+                                    borderSide: BorderSide.none,
+                                  ),
                                 ),
                               ),
-                              onSubmitted: (_) => _send(conversation),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -2429,7 +2452,7 @@ class _CameraGlyph extends StatelessWidget {
       child: Center(
         child: Container(
           width: size,
-          height: size * 0.86,
+          height: size,
           decoration: BoxDecoration(
             border: Border.all(color: color, width: strokeWidth),
             borderRadius: BorderRadius.circular(size * 0.28),

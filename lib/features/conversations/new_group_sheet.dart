@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/errors/humanize_error.dart';
+import '../../core/pick_image.dart';
 import '../../core/theme/albine_theme.dart';
 import '../../data/providers.dart';
 import '../../data/session_controller.dart';
@@ -41,12 +42,18 @@ class _NewGroupSheetState extends ConsumerState<_NewGroupSheet> {
   int _requestId = 0;
   String? _error;
   bool _searchedOnce = false;
+  PickedImage? _avatar;
 
   @override
   void dispose() {
     _titleController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickAvatar() async {
+    final picked = await pickImageBytes();
+    if (picked != null && mounted) setState(() => _avatar = picked);
   }
 
   Future<void> _search(String query) async {
@@ -133,6 +140,21 @@ class _NewGroupSheetState extends ConsumerState<_NewGroupSheet> {
         title: title,
         wrappedKeysByUserId: wrappedKeys,
       );
+      final avatar = _avatar;
+      if (avatar != null) {
+        // Best-effort: a failed avatar upload shouldn't block the group
+        // itself from being created — the owner can always set one
+        // afterward from the group info screen.
+        try {
+          await chat.uploadGroupAvatar(
+            conversationId: conversationId,
+            bytes: avatar.bytes,
+            mime: avatar.mime,
+          );
+        } catch (_) {
+          // Swallowed deliberately — see comment above.
+        }
+      }
       if (mounted) Navigator.of(context).pop(conversationId);
     } catch (e) {
       if (mounted) {
@@ -173,25 +195,76 @@ class _NewGroupSheetState extends ConsumerState<_NewGroupSheet> {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _titleController,
-                    autofocus: true,
-                    onChanged: (_) => setState(() {}),
-                    style: TextStyle(color: colors.textPrimary),
-                    decoration: InputDecoration(
-                      hintText: 'Название группы',
-                      filled: true,
-                      fillColor: colors.surface,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      GestureDetector(
+                        onTap: _pickAvatar,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            CircleAvatar(
+                              radius: 28,
+                              backgroundColor: colors.surfaceStrong,
+                              backgroundImage: _avatar != null
+                                  ? MemoryImage(_avatar!.bytes)
+                                  : null,
+                              child: _avatar != null
+                                  ? null
+                                  : Icon(
+                                      Icons.camera_alt_outlined,
+                                      color: colors.textSecondary,
+                                    ),
+                            ),
+                            if (_avatar != null)
+                              Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: colors.accent,
+                                    border: Border.all(
+                                      color: colors.background,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    Icons.edit,
+                                    size: 10,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(colors.radius),
-                        borderSide: BorderSide.none,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _titleController,
+                          autofocus: true,
+                          onChanged: (_) => setState(() {}),
+                          style: TextStyle(color: colors.textPrimary),
+                          decoration: InputDecoration(
+                            hintText: 'Название группы',
+                            filled: true,
+                            fillColor: colors.surface,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(
+                                colors.radius,
+                              ),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                   if (_selected.isNotEmpty) ...[
                     const SizedBox(height: 12),

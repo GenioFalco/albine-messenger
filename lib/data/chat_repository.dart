@@ -284,12 +284,23 @@ class ChatRepository {
     // show "Сообщение удалено" instead of whatever real message precedes it.
     final lastMessageByConversation = <String, ChatMessage>{};
     final latestEditByConversation = <String, ChatMessage>{};
+    // Unread = a real (non-edit, non-deleted) message from someone else that
+    // this account hasn't marked read yet (`read_at == null` — the same
+    // signal driving the double-check receipt, see 0009_read_receipts.sql).
+    final unreadByConversation = <String, int>{};
     for (final row in messageRows) {
       final msg = ChatMessage.fromRow(row);
       if (msg.isEditEvent) {
         latestEditByConversation.putIfAbsent(msg.conversationId, () => msg);
       } else if (msg.deletedAt == null) {
         lastMessageByConversation.putIfAbsent(msg.conversationId, () => msg);
+        if (msg.senderId != _myUserId && msg.readAt == null) {
+          unreadByConversation.update(
+            msg.conversationId,
+            (n) => n + 1,
+            ifAbsent: () => 1,
+          );
+        }
       }
     }
 
@@ -340,6 +351,7 @@ class ChatRepository {
           peer: peer,
           members: members,
           previewText: preview,
+          unreadCount: unreadByConversation[id] ?? 0,
           pinnedAt: r['pinned_at'] == null
               ? null
               : DateTime.parse(r['pinned_at'] as String).toLocal(),

@@ -57,6 +57,7 @@ class ConversationSummary {
     this.peer,
     this.members,
     this.previewText,
+    this.unreadCount = 0,
     this.pinnedAt,
     this.muted = false,
     this.hiddenAt,
@@ -79,6 +80,10 @@ class ConversationSummary {
   final List<AppProfile>? members;
 
   final String? previewText;
+
+  /// Number of messages from other members this account hasn't read yet —
+  /// shown as a badge in the conversation list. 0 when all caught up.
+  final int unreadCount;
 
   /// This account's own preferences for this conversation — read from *my*
   /// `conversation_members` row, never the other member's.

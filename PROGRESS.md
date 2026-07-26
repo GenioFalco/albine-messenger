@@ -4,6 +4,29 @@ Session-level working log. Updated before major stages and at least every 30–4
 
 ---
 
+## 2026-07-26 — live-testing fixes: session hang, UX polish, push metadata
+
+**Status:** Round of fixes from a real two-account cross-device test. All build clean (`flutter analyze`, `flutter build web --pwa-strategy=none`). The core E2E decrypt failure the user hit is diagnosed but **not a code bug** (see below).
+
+**Cross-device decrypt failures ("Не удалось расшифровать" both directions) — diagnosed, root cause is test-environment key desync, not a bug.** The added logging (previous commit) revealed the exact errors: `InvalidKeyIdException - No such prekey: 1,2,3…10` (Signal path) and `SodiumException` (crypto_box path), all from the *same* peer. Prekey ids 1–10 all missing means the sender keeps establishing a *fresh* X3DH session every message instead of reusing an existing one — which happens when the two sides' key material genuinely doesn't match what's published server-side. Almost certainly because the same account was tested across *two different origins* (the deployed GitHub Pages site **and** the local `localhost:5050` dev server), each of which has its own separate `shared_preferences`/Signal local store, so each origin generated its own identity+prekeys and overwrote the other's `profiles.identity_pubkey` server-side. Nothing in the code is wrong here; the fix is operational — pick *one* origin per device and, if already desynced, use the profile screen's "Сбросить ключ шифрования" (rotate) once on each side, or clear site data and re-login. Documented so it isn't mistaken for a live bug next time.
+
+**Real bug fixed — endless chat-list spinner after a reload on a network blip.** `SessionController._refresh()` awaited `unlock()`/`fetchProfile()` etc. with no surrounding try/catch, so a transient `ERR_CONNECTION_RESET` (which the user hit) threw uncaught and left `state` stuck at `SessionStatus.loading` forever — the router shows a bare spinner in that state. Wrapped `_refresh` in try/catch with a 3-second retry, and specifically guarded `fetchBackup()` inside `unlock()` so a network failure there returns a clean "проверь соединение" error instead of falling through to fresh-keygen (which would silently orphan the account's identity on a mere network hiccup).
+
+**UX fixes this round:**
+- **Enter sends / Shift+Enter = newline** on a physical keyboard (desktop/web): the composer `TextField` is now wrapped in a `Focus` with an `onKeyEvent` that swallows a bare Enter (calls `_send`) and lets Shift+Enter fall through to the default newline. `TextField.onSubmitted` alone only fires for the on-screen keyboard, so this was the missing desktop path.
+- **Desktop right-click no longer stacks the browser's native context menu** on top of our own action sheet — `BrowserContextMenu.disableContextMenu()` in `main()`.
+- **Unread message count badge** in the conversation list — `ConversationSummary.unreadCount` computed in `fetchConversations()` from the already-fetched rows (`read_at == null && sender != me`), rendered as an accent pill (grey when the chat is muted).
+- **Fixed the stray pink/purple tint** on some buttons — `buildAlbineTheme()` was calling `.copyWith(primary: ...)` on `ThemeData.light()`'s *un-seeded* Material 3 palette, leaving every un-overridden role (incl. press/hover state-layer overlays) on Flutter's default purple hue. Now derives the whole `ColorScheme` from the app's own accent via `ColorScheme.fromSeed`.
+- **"Новый чат" picker** ("Личное сообщение"/"Групповой чат") redesigned as a centered, dimmed dialog with a title and `AppCard` rows (new `center` option on `showBlurredModalSheet`) instead of a cramped bottom-anchored dropdown.
+- **Group avatar can now be set at creation time** — `new_group_sheet.dart` gained an avatar picker (reuses `pick_image.dart`), uploaded best-effort right after `startGroupConversation`.
+- **Camera glyph is now a true square** (was `height: size*0.86`, slightly flattened).
+
+**Push notifications — now show the sender/group name (safe metadata, still no message text).** `notify-new-message` edge function now looks up the sender's `display_name` and, for groups, the conversation `title`, and uses `"Женя"` / `"Женя • Группа"` as the notification title (body stays the generic "Новое сообщение"). This is public metadata the server already knows, not message content — it never touches ciphertext, so E2E is intact. **User needs to redeploy the edge function** for this to take effect (code-only change, no new secret).
+
+**Still open / needs the user:**
+- Read receipts not flipping to double-check: the user read on the 2nd account but the 1st still shows one grey check. This depends on `markMessagesRead` actually writing `read_at` — needs checking that `0009_read_receipts.sql` is applied and its RLS policy lets the reader update. To verify next round (couldn't reproduce without two live sessions).
+- Redeploy `notify-new-message` (for the sender-name title).
+
 ## 2026-07-13
 
 **Status:** M1.5 fully implemented (both phases) and passes `flutter analyze` clean. Not yet verified live — the Supabase project this app points to (`.env` → `aeblseyhjxkxbqicxxhj.supabase.co`) does not have migrations `0002`/`0003` applied yet (no Supabase CLI/service-role credentials available in this environment to apply them), and the Browser-pane tooling in this environment can't screenshot/click into this app's canvaskit-rendered Flutter Web build (screenshot calls hang), so manual E2E per `ROADMAP.md`'s M1.5 section still needs to happen with real credentials/a real browser.

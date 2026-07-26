@@ -73,32 +73,71 @@ class _ConversationsScreenState extends ConsumerState<ConversationsScreen> {
     final colors = Theme.of(context).extension<AlbineColors>()!;
     await showBlurredModalSheet<void>(
       context: context,
+      // A standalone 2-choice dialog reads as its own thing when centered —
+      // pinned to the bottom (the default, meant for a message's own
+      // context menu) it looked like a stray card floating near an
+      // unrelated corner of the screen.
+      center: true,
+      alwaysDim: true,
+      maxWidth: 320,
       builder: (sheetContext) => Container(
-        margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        margin: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
-          color: colors.background.withValues(alpha: 0.94),
+          color: colors.background,
           borderRadius: BorderRadius.circular(colors.radius),
         ),
-        child: SafeArea(
-          top: false,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ActionSheetTile(
-                icon: CupertinoIcons.person,
-                label: 'Личное сообщение',
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+                child: Text(
+                  'Новый чат',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              AppCard(
                 onTap: () {
                   Navigator.of(sheetContext).pop();
                   _startNewChat();
                 },
+                child: Row(
+                  children: [
+                    Icon(CupertinoIcons.person, color: colors.textPrimary),
+                    const SizedBox(width: 16),
+                    Text(
+                      'Личное сообщение',
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              ActionSheetTile(
-                icon: CupertinoIcons.person_2,
-                label: 'Групповой чат',
+              const SizedBox(height: 4),
+              AppCard(
                 onTap: () {
                   Navigator.of(sheetContext).pop();
                   _startNewGroup();
                 },
+                child: Row(
+                  children: [
+                    Icon(CupertinoIcons.person_2, color: colors.textPrimary),
+                    const SizedBox(width: 16),
+                    Text(
+                      'Групповой чат',
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -524,6 +563,33 @@ class _ConversationTile extends StatelessWidget {
                                 CupertinoIcons.bell_slash,
                                 size: 15,
                                 color: colors.textSecondary,
+                              ),
+                            ],
+                            if (convo.unreadCount > 0) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                constraints: const BoxConstraints(minWidth: 20),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: convo.muted
+                                      ? colors.textSecondary
+                                      : colors.accent,
+                                  borderRadius: BorderRadius.circular(11),
+                                ),
+                                child: Text(
+                                  convo.unreadCount > 99
+                                      ? '99+'
+                                      : '${convo.unreadCount}',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                               ),
                             ],
                           ],

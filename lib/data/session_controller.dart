@@ -128,20 +128,38 @@ class SessionController extends Notifier<SessionState> {
       return;
     }
 
+    try {
+      await _refreshOnce(user.id);
+    } catch (_) {
+      // A transient network failure anywhere in here (fetchProfile, loading
+      // the wrapped key, etc.) used to propagate uncaught and leave `state`
+      // stuck at `SessionStatus.loading` forever — the "endless chat-list
+      // spinner after a reload during a network hiccup" this was seen as.
+      // Retry instead of hanging; `authStateProvider`'s listener or a future
+      // explicit action will also re-trigger this sooner if applicable.
+      unawaited(
+        Future.delayed(const Duration(seconds: 3), () {
+          if (_client.auth.currentUser != null) _refresh();
+        }),
+      );
+    }
+  }
+
+  Future<void> _refreshOnce(String userId) async {
     await _crypto.ensureReady();
-    final profile = await _profiles.fetchProfile(user.id);
+    final profile = await _profiles.fetchProfile(userId);
     if (profile == null) {
       state = const SessionState(status: SessionStatus.needsProfileSetup);
       return;
     }
 
-    _wrappedKeyCache = await _storage.loadWrappedPrivateKey(user.id);
+    _wrappedKeyCache = await _storage.loadWrappedPrivateKey(userId);
 
     // Skip the password entirely if this browser already unlocked once
     // since the last explicit sign-out — see KeyStorage's doc comment for
     // the trade-off this accepts (device/browser compromise can read this
     // without the password).
-    final unlockedSecretBytes = await _storage.loadUnlockedSecretKey(user.id);
+    final unlockedSecretBytes = await _storage.loadUnlockedSecretKey(userId);
     if (unlockedSecretBytes != null) {
       final keyPair = _crypto.restoreIdentityKeyPair(
         secretKeyBytes: unlockedSecretBytes,
@@ -153,12 +171,12 @@ class SessionController extends Notifier<SessionState> {
           profile: profile,
           identityKeyPair: keyPair,
         );
-        unawaited(_bootstrapSignal(user.id, unlockedSecretBytes));
+        unawaited(_bootstrapSignal(userId, unlockedSecretBytes));
         return;
       }
       // Stale/mismatched (e.g. key rotated elsewhere) — fall through to the
       // normal password flow below.
-      await _storage.clearUnlockedSecretKey(user.id);
+      await _storage.clearUnlockedSecretKey(userId);
     }
 
     // If we just signed in this session (password still cached in memory),
@@ -233,9 +251,23 @@ class SessionController extends Notifier<SessionState> {
 
     // New device, or the local key no longer matches: try the server-side
     // encrypted backup before ever generating a fresh keypair.
-    final backup = trustServerBackup
-        ? await _keyBackup.fetchBackup(user.id)
-        : null;
+    //
+    // A transient network failure here (e.g. a dropped connection) must
+    // never be treated the same as "no backup exists" — that would fall
+    // through to fresh-keygen below and silently orphan every past
+    // conversation the moment the network hiccups. It also must not
+    // propagate uncaught: `_refresh()` awaits `unlock()` directly with no
+    // surrounding try/catch, so an uncaught throw here left the session
+    // stuck at `SessionStatus.loading` forever — the "endless chat list
+    // spinner after a reload" a real network blip could produce.
+    WrappedSecret? backup;
+    if (trustServerBackup) {
+      try {
+        backup = await _keyBackup.fetchBackup(user.id);
+      } catch (e) {
+        return 'Не удалось связаться с сервером. Проверь соединение и попробуй ещё раз. ${humanizeError(e)}';
+      }
+    }
     if (backup != null) {
       Uint8List secretBytes;
       try {

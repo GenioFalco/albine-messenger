@@ -3,11 +3,18 @@
 // (see supabase/migrations/0012_push_notifications.sql) rather than polling.
 //
 // Strict E2E note: this function only ever sees ciphertext (the `messages`
-// row) — it has no way to know what the message says, and deliberately
-// makes no attempt to. The notification body is always the same generic
-// "Новое сообщение" (see ROADMAP.md's M4 "развилка" — this was decided, not
-// a placeholder to fill in later: showing real text would require the
-// server to read plaintext, which breaks the whole point of E2E).
+// row) — it has no way to know what the message *says*, and deliberately
+// makes no attempt to. The notification *body* is therefore always the
+// generic "Новое сообщение" (see ROADMAP.md's M4 "развилка" — decided, not a
+// placeholder: showing the real text would require the server to read
+// plaintext, breaking the whole point of E2E).
+//
+// The *title*, however, is public metadata the server legitimately knows:
+// who sent it (their display name) and, for a group, the group's name —
+// none of which is message content. So the notification reads e.g.
+// "Женя" / "Новое сообщение" for a direct chat, or
+// "Женя • Команда RPA" / "Новое сообщение" for a group. That's the most a
+// strict-E2E messenger can show, and matches what Signal itself does.
 //
 // Deploy: `supabase functions deploy notify-new-message`
 // Secrets (set once): `supabase secrets set VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... VAPID_SUBJECT=mailto:you@example.com`
@@ -60,13 +67,28 @@ Deno.serve(async (req) => {
     return new Response("ok", { status: 200 });
   }
 
-  const { data: subs } = await supabase
-    .from("push_subscriptions")
-    .select("*")
-    .in("user_id", recipientIds);
+  // Public metadata only (never message content): the sender's display name,
+  // and — for a group — the group's title. See the E2E note at the top.
+  const { data: sender } = await supabase
+    .from("profiles")
+    .select("display_name")
+    .eq("id", message.sender_id)
+    .maybeSingle();
+
+  const { data: conversation } = await supabase
+    .from("conversations")
+    .select("kind, title")
+    .eq("id", message.conversation_id)
+    .maybeSingle();
+
+  const senderName = sender?.display_name ?? "Albine";
+  const title =
+    conversation?.kind === "group" && conversation?.title
+      ? `${senderName} • ${conversation.title}`
+      : senderName;
 
   const body = JSON.stringify({
-    title: "Albine",
+    title,
     body: "Новое сообщение",
     url: "./",
   });

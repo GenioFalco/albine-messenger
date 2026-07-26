@@ -39,6 +39,11 @@ Future<T?> showBlurredModalSheet<T>({
   // the bottom, which only makes sense as a mobile bottom-sheet convention.
   bool alwaysDim = false,
   bool centerOnWide = false,
+  // Centers on *every* screen size, mobile included — for a small standalone
+  // choice sheet (e.g. "personal message vs. group chat") a bottom-sheet
+  // position reads as a stray floating card near an unrelated corner;
+  // centering makes it unambiguously its own dialog.
+  bool center = false,
 }) {
   // Mirrors main_shell.dart's `_wideBreakpoint` (900) — below it we're the
   // single-column mobile layout.
@@ -68,7 +73,7 @@ Future<T?> showBlurredModalSheet<T>({
       if (anchorRect == null) {
         return SafeArea(
           child: Align(
-            alignment: centerOnWide && isWide
+            alignment: center || (centerOnWide && isWide)
                 ? Alignment.center
                 : Alignment.bottomCenter,
             child: Padding(padding: const EdgeInsets.all(12), child: content),

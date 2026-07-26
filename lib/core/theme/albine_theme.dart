@@ -82,10 +82,22 @@ class AlbineColors extends ThemeExtension<AlbineColors> {
 
 ThemeData buildAlbineTheme() {
   const colors = AlbineColors.light;
+  // `ThemeData.light()`'s un-seeded Material 3 palette has its own baked-in
+  // hue (noticeably purple/pink) for every color role this app doesn't
+  // explicitly override — `.copyWith(primary: ...)` alone only touches the
+  // handful of roles listed, leaving things like `secondaryContainer`/
+  // `surfaceTint`/hover-and-press "state layer" overlays on that unrelated
+  // default hue, which is exactly what showed up as a stray pink tint on
+  // some buttons. Deriving the *whole* scheme from the app's own accent
+  // keeps every role consistent with it instead.
+  final scheme = ColorScheme.fromSeed(
+    seedColor: colors.accent,
+    brightness: Brightness.light,
+  );
   final base = ThemeData.light(useMaterial3: true);
   return base.copyWith(
     scaffoldBackgroundColor: colors.background,
-    colorScheme: base.colorScheme.copyWith(
+    colorScheme: scheme.copyWith(
       primary: colors.accent,
       onPrimary: colors.textOnAccent,
       secondary: colors.textSecondary,
