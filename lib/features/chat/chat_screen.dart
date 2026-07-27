@@ -113,6 +113,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _suppressAutoScroll = false;
   int _lastEntryCount = -1;
 
+  /// On first opening a chat, land on the earliest unread message (like
+  /// Telegram/WhatsApp) instead of the very bottom — set true once that's
+  /// been done so later stream re-emits don't re-trigger it.
+  bool _didInitialScroll = false;
+
   /// Message ids already sent through `markMessagesRead` this session — a
   /// local dedupe so the same unread batch doesn't trigger a repeat network
   /// call on every rebuild (the update itself is already a no-op the second
@@ -1228,7 +1233,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     // touches conversation_members and retriggers this).
                     final grew = entries.length > _lastEntryCount;
                     _lastEntryCount = entries.length;
-                    if (grew && !_suppressAutoScroll) {
+                    if (!_didInitialScroll && items.isNotEmpty) {
+                      // First time this chat's messages resolve: land on the
+                      // earliest unread message from someone else, not the very
+                      // bottom. Jump to the bottom first so the recent items
+                      // (where unread usually live) are actually built, then
+                      // ensureVisible scrolls up to the first unread one.
+                      _didInitialScroll = true;
+                      String? firstUnreadId;
+                      for (final m in items) {
+                        if (m.senderId != myId && m.readAt == null) {
+                          firstUnreadId = m.id;
+                          break;
+                        }
+                      }
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!_scrollController.hasClients) return;
+                        _scrollController.jumpTo(
+                          _scrollController.position.maxScrollExtent,
+                        );
+                        if (firstUnreadId == null) return;
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          final ctx =
+                              _messageKeys[firstUnreadId]?.currentContext;
+                          if (ctx != null) {
+                            Scrollable.ensureVisible(
+                              ctx,
+                              alignment: 0.15,
+                              duration: const Duration(milliseconds: 250),
+                              curve: Curves.easeOut,
+                            );
+                          }
+                        });
+                      });
+                    } else if (grew && !_suppressAutoScroll) {
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         if (_scrollController.hasClients) {
                           _scrollController.jumpTo(
