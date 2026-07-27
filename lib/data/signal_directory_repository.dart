@@ -107,32 +107,18 @@ class SignalDirectoryRepository {
         .maybeSingle();
     if (signedRow == null) return null;
 
-    // A one-time prekey is an optional X3DH ingredient (stronger forward
-    // secrecy for the first message, not required to establish a session at
-    // all) — if claiming one fails for any reason, degrade to "none
-    // available" instead of aborting the whole handshake over it.
-    Map<String, dynamic>? otp;
-    try {
-      final claimed = await _client.rpc(
-        'claim_one_time_prekey',
-        params: {'target_user_id': peer.id},
-      );
-      if (claimed is List && claimed.isNotEmpty) {
-        otp = claimed.first as Map<String, dynamic>;
-      }
-    } catch (_) {
-      otp = null;
-    }
-
+    // One-time prekeys are deliberately no longer used (see
+    // SignalService.republishOwnPreKeys for the full rationale): they were the
+    // sole cause of the recurring "No such prekey" desync. X3DH establishes a
+    // session from the signed prekey alone, so we never claim one here — the
+    // bundle always goes out with a null one-time prekey.
     return SignalBundleRow(
       registrationId: registrationId,
       signedPreKeyId: signedRow['key_id'] as int,
       signedPreKeyPublic: base64Decode(signedRow['public_key'] as String),
       signedPreKeySignature: base64Decode(signedRow['signature'] as String),
-      oneTimePreKeyId: otp == null ? null : otp['key_id'] as int,
-      oneTimePreKeyPublic: otp == null
-          ? null
-          : base64Decode(otp['public_key'] as String),
+      oneTimePreKeyId: null,
+      oneTimePreKeyPublic: null,
     );
   }
 }
