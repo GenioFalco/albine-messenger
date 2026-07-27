@@ -50,12 +50,16 @@ class VoiceMessageBubble extends ConsumerStatefulWidget {
 }
 
 class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
+  /// Playback speed persists across the whole session and every voice bubble:
+  /// pick 2× on one note and all of them play at 2× until changed again.
+  static double _rememberedSpeed = 1.0;
+
   final AudioPlayer _player = AudioPlayer();
   String? _objectUrl;
   bool _preparing = false;
   bool _prepared = false;
   bool _failed = false;
-  double _speed = 1.0;
+  late double _speed = _rememberedSpeed;
   StreamSubscription<PlayerState>? _stateSub;
 
   @override
@@ -137,6 +141,9 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
 
     _stateSub = _player.playerStateStream.listen((s) {
       if (s.processingState == ProcessingState.completed) {
+        // Reset to the start so the play button works again — without the
+        // seek, just_audio stays in the `completed` state and a second play()
+        // is a no-op until the chat is reopened.
         _player.pause();
         _player.seek(Duration.zero);
         _VoicePlaybackCoordinator.deactivate(this);
@@ -157,6 +164,13 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
     if (_player.playing) {
       await _player.pause();
     } else {
+      // Finished (or parked at the end) → rewind before replaying, otherwise
+      // just_audio's `completed` state swallows play().
+      final total = _player.duration;
+      if (_player.processingState == ProcessingState.completed ||
+          (total != null && _player.position >= total)) {
+        await _player.seek(Duration.zero);
+      }
       _VoicePlaybackCoordinator.activate(this);
       await _player.play();
     }
@@ -172,6 +186,7 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
 
   void _cycleSpeed() {
     final next = _speed >= 2.0 ? 1.0 : (_speed >= 1.5 ? 2.0 : 1.5);
+    _rememberedSpeed = next;
     setState(() => _speed = next);
     if (_prepared) _player.setSpeed(next);
   }

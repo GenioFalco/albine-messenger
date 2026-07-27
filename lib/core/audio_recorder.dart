@@ -40,6 +40,8 @@ class VoiceRecorder {
   web.MediaStream? _stream;
   web.AudioContext? _ctx;
   web.MediaStreamAudioSourceNode? _source;
+  web.BiquadFilterNode? _highpass;
+  web.DynamicsCompressorNode? _compressor;
   web.ScriptProcessorNode? _processor;
   web.GainNode? _sink;
   JSFunction? _onAudio;
@@ -60,6 +62,9 @@ class VoiceRecorder {
         'echoCancellation': true,
         'noiseSuppression': true,
         'autoGainControl': true,
+        // Newer Chrome ML voice isolation; unknown constraints are ignored by
+        // browsers that don't support it, so this is safe to always request.
+        'voiceIsolation': true,
         'channelCount': 1,
       }.jsify()!,
     );
@@ -76,6 +81,26 @@ class VoiceRecorder {
 
     final source = ctx.createMediaStreamSource(stream);
     _source = source;
+
+    // Processing chain, applied before capture (Telegram-style "clean" voice):
+    //   high-pass  — cuts low rumble / plosives / desk thumps below ~85 Hz
+    //   compressor — evens out loudness (quiet speech pulled up, peaks tamed);
+    //                this is the main thing that makes a voice note sound
+    //                "produced" rather than raw
+    // Final peak normalization happens offline in stop().
+    final highpass = ctx.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.value = 85;
+    _highpass = highpass;
+
+    final comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -24;
+    comp.knee.value = 30;
+    comp.ratio.value = 4;
+    comp.attack.value = 0.003;
+    comp.release.value = 0.25;
+    _compressor = comp;
+
     final processor = ctx.createScriptProcessor(4096, 1, 1);
     _processor = processor;
     // Route through a muted gain node so the mic never feeds back to the
@@ -91,7 +116,9 @@ class VoiceRecorder {
     }).toJS;
     processor.onaudioprocess = _onAudio;
 
-    source.connect(processor);
+    source.connect(highpass);
+    highpass.connect(comp);
+    comp.connect(processor);
     processor.connect(sink);
     sink.connect(ctx.destination);
   }
@@ -100,6 +127,8 @@ class VoiceRecorder {
   Future<RecordedVoice?> stop() async {
     final samples = _teardown();
     if (samples == null || samples.isEmpty) return null;
+
+    _normalizePeak(samples);
 
     final wav = _encodeWav(samples, _sampleRate);
     final duration = Duration(
@@ -136,6 +165,12 @@ class VoiceRecorder {
       _source?.disconnect();
     } catch (_) {}
     try {
+      _highpass?.disconnect();
+    } catch (_) {}
+    try {
+      _compressor?.disconnect();
+    } catch (_) {}
+    try {
       _sink?.disconnect();
     } catch (_) {}
     for (final track in _tracks(_stream)) {
@@ -150,6 +185,8 @@ class VoiceRecorder {
 
     _processor = null;
     _source = null;
+    _highpass = null;
+    _compressor = null;
     _sink = null;
     _stream = null;
     _ctx = null;
@@ -171,6 +208,24 @@ class VoiceRecorder {
     if (stream == null) return const [];
     final tracks = stream.getAudioTracks().toDart;
     return [for (final t in tracks) t];
+  }
+
+  /// Peak-normalizes in place so every voice note lands at a consistent
+  /// loudness (~-0.3 dB). Only ever boosts, and the gain is capped so a
+  /// near-silent recording doesn't get its background hiss amplified to full
+  /// scale.
+  static void _normalizePeak(Float32List samples) {
+    var peak = 0.0;
+    for (final s in samples) {
+      final a = s.abs();
+      if (a > peak) peak = a;
+    }
+    if (peak <= 0) return;
+    final gain = (0.97 / peak).clamp(1.0, 8.0);
+    if (gain == 1.0) return;
+    for (var i = 0; i < samples.length; i++) {
+      samples[i] = (samples[i] * gain).clamp(-1.0, 1.0);
+    }
   }
 
   static Uint8List _encodeWav(Float32List samples, int sampleRate) {
