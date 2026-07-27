@@ -40,6 +40,12 @@
   <!-- libsodium (sumo build) — must load before Dart code calls SodiumSumoInit.init() -->
   <script type="text/javascript" src="sodium.js" async></script>
 
+  <!-- RNNoise ML noise-suppression for voice messages. rnnoise.js defines the
+       emscripten factory (createRNNWasmModule) and rnnoise_denoise.js exposes
+       window.albineDenoise() that the recorder calls after capture. -->
+  <script type="text/javascript" src="rnnoise.js"></script>
+  <script type="text/javascript" src="rnnoise_denoise.js"></script>
+
   <!-- Push notifications: Flutter's own generated service worker is built
        with --pwa-strategy=none (see .github/workflows/deploy.yml) so it
        never registers one, leaving the scope free for this one. -->
