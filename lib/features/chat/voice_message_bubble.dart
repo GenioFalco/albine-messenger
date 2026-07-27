@@ -58,6 +58,16 @@ class _VoiceMessageBubbleState extends ConsumerState<VoiceMessageBubble> {
   double _speed = 1.0;
   StreamSubscription<PlayerState>? _stateSub;
 
+  @override
+  void initState() {
+    super.initState();
+    // Eagerly fetch+decrypt+load so that when the user taps play, play() runs
+    // synchronously inside the tap's user-gesture window. iOS Safari refuses
+    // an <audio>.play() that comes after an async gap (network/decrypt), so a
+    // lazy "download on first tap" never actually plays there.
+    Future.microtask(_prepare);
+  }
+
   static const _defaultBars = <int>[
     18, 30, 22, 45, 60, 38, 52, 70, 40, 28,
     55, 72, 48, 33, 62, 80, 50, 36, 44, 66,
