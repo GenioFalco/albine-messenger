@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
@@ -125,14 +126,25 @@ class VoiceRecorder {
 
   /// Stops and returns the recording, or null if nothing was captured.
   Future<RecordedVoice?> stop() async {
-    final samples = _teardown();
-    if (samples == null || samples.isEmpty) return null;
+    final captured = _teardown();
+    if (captured == null || captured.isEmpty) return null;
+
+    // ML noise suppression (RNNoise WASM, via window.albineDenoise). Returns
+    // mono @ 48 kHz; fail-open — on any error the original PCM comes back so a
+    // voice note always sends.
+    var samples = captured;
+    var rate = _sampleRate;
+    final denoised = await _denoise(captured, _sampleRate);
+    if (denoised != null && denoised.isNotEmpty) {
+      samples = denoised;
+      rate = 48000;
+    }
 
     _normalizePeak(samples);
 
-    final wav = _encodeWav(samples, _sampleRate);
+    final wav = _encodeWav(samples, rate);
     final duration = Duration(
-      milliseconds: (samples.length / _sampleRate * 1000).round(),
+      milliseconds: (samples.length / rate * 1000).round(),
     );
     return RecordedVoice(
       bytes: wav,
@@ -140,6 +152,20 @@ class VoiceRecorder {
       duration: duration,
       waveform: _computeWaveform(samples),
     );
+  }
+
+  Future<Float32List?> _denoise(Float32List samples, int rate) async {
+    try {
+      final fn = globalContext.getProperty('albineDenoise'.toJS);
+      if (fn.isUndefinedOrNull) return null;
+      final result =
+          (fn as JSFunction).callAsFunction(null, samples.toJS, rate.toJS)
+              as JSPromise<JSFloat32Array>;
+      final out = await result.toDart;
+      return out.toDart;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> cancel() async {

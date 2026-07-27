@@ -4,6 +4,18 @@ Session-level working log. Updated before major stages and at least every 30–4
 
 ---
 
+## 2026-07-28 — Голосовые: ML-шумодав RNNoise (WASM)
+
+**Status:** Базовая Web Audio цепочка «почти ничего не изменила» по фону, поэтому добавлен настоящий ИИ-шумодав **RNNoise**. Пайплайн проверен прямо в браузере через JS-консоль (canvaskit-UI недоступен, но RNNoise — чистый JS/WASM, проверяется независимо): `createRNNWasmModule`=function, `albineDenoise` реально обрабатывает (~59 мс на 1 сек аудио, RMS 0.157→0.096 — шум давится). Осталась живая проверка на слух на реальной записи.
+
+- **Ассеты:** `web/rnnoise.js` (emscripten glue) + `web/rnnoise.wasm` (110 КБ, sha256 сверен с реестром jsdelivr — подлинный) + `web/rnnoise_denoise.js` (обёртка). Взято из `@jitsi/rnnoise-wasm@0.2.1`.
+- **Важный баг при интеграции:** upstream `rnnoise.js` заканчивается `export default createRNNWasmModule;` → это ES-модуль, и классический `<script>` падает с SyntaxError (фабрика не определяется, денойз молча откатывался за 1 мс). Убрал эту строку из вендоренного `web/rnnoise.js` → грузится классическим скриптом, `createRNNWasmModule` — глобаль.
+- **Обёртка** `window.albineDenoise(Float32Array, sampleRate) → Promise<Float32Array>`: ресемпл в 48 кГц при необходимости, обработка кадрами по 480 сэмплов (сэмплы масштабируются в int16-диапазон), fail-open (при любой ошибке возвращает оригинал — ГС всё равно уходит). Вся возня с памятью emscripten (malloc/HEAPF32) заперта в JS.
+- **Dart:** `audio_recorder.dart` в `stop()` зовёт `albineDenoise` (через `dart:js_interop_unsafe` `globalContext.getProperty`), затем нормализация → WAV@48к. `index.html` грузит оба скрипта.
+- Web Audio цепочка (high-pass + компрессор + нормализация + voiceIsolation) осталась перед RNNoise.
+
+---
+
 ## 2026-07-27 (2) — M5 этап 2: волна/перемотка/скорость + запись в WAV ради iOS
 
 **Status:** Голосовые доведены до вида и поведения как в ТГ/ВК; отдельно решена проблема «на iPhone не играет вообще ничего». Собрано (`flutter analyze` — чисто в voice-файлах, `build web` — ок). Требует применения миграции `0015` + живой проверки на iPhone (новой записью).
