@@ -127,6 +127,8 @@ class ChatMessage {
     this.mediaNonce,
     this.mediaSizeBytes,
     this.mediaMimeHint,
+    this.mediaDurationMs,
+    this.mediaWaveform,
     this.readAt,
   });
 
@@ -195,6 +197,14 @@ class ChatMessage {
   /// without a schema change).
   final String? mediaMimeHint;
 
+  /// Voice message length in milliseconds, and a compact amplitude waveform
+  /// (each value 0–100, ~40 buckets) computed on the recording device — lets
+  /// a voice bubble draw the Telegram/VK-style bars and show the duration
+  /// immediately, without downloading+decoding the audio first. Null for
+  /// non-voice messages (and for voice notes sent before this shipped).
+  final int? mediaDurationMs;
+  final List<int>? mediaWaveform;
+
   /// Set the first time any other conversation member reads this message —
   /// drives the single-check/double-check indicator. See
   /// `0009_read_receipts.sql` for why this is one timestamp rather than a
@@ -229,6 +239,13 @@ class ChatMessage {
         : base64Decode(row['media_nonce'] as String),
     mediaSizeBytes: row['media_size_bytes'] as int?,
     mediaMimeHint: row['media_mime_hint'] as String?,
+    mediaDurationMs: row['media_duration_ms'] as int?,
+    mediaWaveform: row['media_waveform'] == null
+        ? null
+        : [
+            for (final v in (row['media_waveform'] as String).split(','))
+              if (v.isNotEmpty) int.tryParse(v) ?? 0,
+          ],
     readAt: row['read_at'] == null
         ? null
         : DateTime.parse(row['read_at'] as String).toLocal(),

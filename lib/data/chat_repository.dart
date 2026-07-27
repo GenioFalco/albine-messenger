@@ -880,6 +880,8 @@ class ChatRepository {
     required String contentType,
     required String mimeHint,
     String? replyToId,
+    int? durationMs,
+    List<int>? waveform,
   }) async {
     final key = _crypto.generateGroupKey();
     try {
@@ -913,6 +915,9 @@ class ChatRepository {
         'media_nonce': base64Encode(payload.nonce),
         'media_size_bytes': bytes.length,
         'media_mime_hint': mimeHint,
+        if (durationMs != null) 'media_duration_ms': durationMs,
+        if (waveform != null && waveform.isNotEmpty)
+          'media_waveform': waveform.join(','),
         if (replyToId != null) 'reply_to_id': replyToId,
       });
     } finally {

@@ -513,6 +513,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         bytes: recorded.bytes,
         contentType: 'voice',
         mimeHint: recorded.mime,
+        durationMs: recorded.duration.inMilliseconds,
+        waveform: recorded.waveform,
       );
     } catch (e) {
       if (mounted) {

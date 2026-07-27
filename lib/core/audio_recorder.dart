@@ -11,11 +11,16 @@ class RecordedVoice {
     required this.bytes,
     required this.mime,
     required this.duration,
+    required this.waveform,
   });
 
   final Uint8List bytes;
   final String mime;
   final Duration duration;
+
+  /// Compact amplitude envelope (each value 0–100, ~40 buckets) for the
+  /// Telegram/VK-style bars. Empty if analysis failed (bubble draws flat bars).
+  final List<int> waveform;
 }
 
 /// Voice-message capture tuned for a clean, "top" sound rather than the muddy
@@ -62,10 +67,26 @@ class VoiceRecorder {
     if (url == null) return null;
     final bytes = await _blobUrlToBytes(url);
     if (bytes.isEmpty) return null;
+
+    // Analyze the just-recorded audio once, here on the recording device
+    // (Web Audio decode works in Chrome/Firefox/Android), so the waveform +
+    // exact duration travel with the message and every viewer can draw the
+    // bars without decoding anything.
+    var finalDuration = duration;
+    var waveform = const <int>[];
+    try {
+      final analyzed = await analyzeVoice(bytes);
+      waveform = analyzed.$2;
+      if (analyzed.$1 > Duration.zero) finalDuration = analyzed.$1;
+    } catch (_) {
+      // Fall back to the wall-clock elapsed time and flat bars.
+    }
+
     return RecordedVoice(
       bytes: bytes,
       mime: 'audio/webm;codecs=opus',
-      duration: duration,
+      duration: finalDuration,
+      waveform: waveform,
     );
   }
 
@@ -87,5 +108,46 @@ class VoiceRecorder {
     final resp = await web.window.fetch(url.toJS).toDart;
     final buffer = (await resp.arrayBuffer().toDart).toDart;
     return buffer.asUint8List();
+  }
+}
+
+/// Decodes [bytes] (any browser-playable audio) and returns its (duration,
+/// waveform) — the waveform is [buckets] peak-amplitude values scaled to
+/// 0–100. Web-only (Web Audio API). Throws if the browser can't decode the
+/// format (e.g. WebM on iOS Safari) — callers should treat that as "no
+/// waveform" rather than fatal.
+Future<(Duration, List<int>)> analyzeVoice(
+  Uint8List bytes, {
+  int buckets = 40,
+}) async {
+  final ctx = web.AudioContext();
+  try {
+    // Fresh copy so we own the ArrayBuffer decodeAudioData will detach.
+    final copy = Uint8List.fromList(bytes);
+    final decoded = await ctx.decodeAudioData(copy.buffer.toJS).toDart;
+    final duration = Duration(milliseconds: (decoded.duration * 1000).round());
+
+    final channel = decoded.getChannelData(0).toDart;
+    if (channel.isEmpty) return (duration, <int>[]);
+
+    final per = (channel.length / buckets).ceil().clamp(1, channel.length);
+    final peaks = <double>[];
+    var maxPeak = 0.0;
+    for (var b = 0; b < buckets; b++) {
+      var peak = 0.0;
+      final start = b * per;
+      final end = (start + per).clamp(0, channel.length);
+      for (var i = start; i < end; i++) {
+        final a = channel[i].abs();
+        if (a > peak) peak = a;
+      }
+      peaks.add(peak);
+      if (peak > maxPeak) maxPeak = peak;
+    }
+
+    final scale = maxPeak == 0 ? 0.0 : 100.0 / maxPeak;
+    return (duration, [for (final p in peaks) (p * scale).round().clamp(0, 100)]);
+  } finally {
+    ctx.close();
   }
 }
